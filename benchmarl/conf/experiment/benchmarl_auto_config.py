@@ -1,332 +1,313 @@
-import os
+#!/usr/bin/env python3
+import argparse
 import math
-import psutil
-import torch
+import os
 import subprocess
 from pprint import pprint
 
-# ============================================================
-# SYSTEM DETECTION
-# ============================================================
+import psutil
+import torch
 
 
-def get_cpu_info():
-    return {
-        "physical_cores": psutil.cpu_count(logical=False),
-        "logical_cores": psutil.cpu_count(logical=True),
-        "cpu_freq_mhz": psutil.cpu_freq().max,
-        "cpu_usage_percent": psutil.cpu_percent(interval=1),
-        "load_avg": os.getloadavg(),
-    }
-
-
-
-def get_ram_info():
-    ram = psutil.virtual_memory()
-
-    return {
-        "total_gb": round(ram.total / 1024**3, 2),
-        "available_gb": round(ram.available / 1024**3, 2),
-        "used_percent": ram.percent,
-    }
-
-
-# ============================================================
-# GPU DETECTION
-# ============================================================
-
-
-def get_gpu_info():
-
-    if not torch.cuda.is_available():
-        return {
-            "cuda_available": False,
-            "gpu_count": 0,
-            "gpus": [],
-        }
-
-    gpus = []
-
-    for i in range(torch.cuda.device_count()):
-        props = torch.cuda.get_device_properties(i)
-
-        gpus.append({
-            "id": i,
-            "name": props.name,
-            "total_memory_gb": round(props.total_memory / 1024**3, 2),
-            "multi_processor_count": props.multi_processor_count,
-            "max_threads_per_block": props.max_threads_per_block,
-        })
-
-    return {
-        "cuda_available": True,
-        "gpu_count": torch.cuda.device_count(),
-        "gpus": gpus,
-    }
-
-
-# ============================================================
-# LIVE NVIDIA-SMI STATS
-# ============================================================
+def round_power2(x):
+    return 2 ** round(math.log2(x))
 
 
 def safe_int(x):
-
-    x = x.strip()
-
-    if x in ["[N/A]", "N/A", ""]:
-        return None
-
     try:
-        return int(float(x))
-    except:
+        if x in ["[N/A]", "N/A", "", None]:
+            return None
+        return int(float(str(x).strip()))
+    except Exception:
         return None
 
 
 def safe_float(x):
-
-    x = x.strip()
-
-    if x in ["[N/A]", "N/A", ""]:
-        return None
-
     try:
-        return float(x)
-    except:
+        if x in ["[N/A]", "N/A", "", None]:
+            return None
+        return float(str(x).strip())
+    except Exception:
         return None
+
+
+def get_system_info():
+    ram = psutil.virtual_memory()
+
+    info = {
+        "cpu": {
+            "physical_cores": psutil.cpu_count(logical=False),
+            "logical_cores": psutil.cpu_count(logical=True),
+            "cpu_freq_mhz": psutil.cpu_freq().max if psutil.cpu_freq() else None,
+        },
+        "ram": {
+            "total_gb": round(ram.total / 1024**3, 2),
+            "available_gb": round(ram.available / 1024**3, 2),
+        },
+        "cuda": {
+            "available": torch.cuda.is_available(),
+            "gpu_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+            "gpus": [],
+        },
+    }
+
+    if torch.cuda.is_available():
+        for i in range(torch.cuda.device_count()):
+            p = torch.cuda.get_device_properties(i)
+            info["cuda"]["gpus"].append({
+                "id": i,
+                "name": p.name,
+                "vram_gb": round(p.total_memory / 1024**3, 2),
+                "sm_count": p.multi_processor_count,
+            })
+
+    return info
 
 
 def get_nvidia_smi():
 
+    # --------------------------------------------------------
+    # NO CUDA
+    # --------------------------------------------------------
+
+    if not torch.cuda.is_available():
+
+        return {
+            "available": False,
+            "reason": "CUDA not available"
+        }
+
+    # --------------------------------------------------------
+    # NVIDIA-SMI NOT INSTALLED
+    # --------------------------------------------------------
+
+    if subprocess.call(
+        ["which", "nvidia-smi"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    ) != 0:
+
+        return {
+            "available": False,
+            "reason": "nvidia-smi not installed"
+        }
+
+    # --------------------------------------------------------
+    # QUERY NVIDIA-SMI
+    # --------------------------------------------------------
+
     try:
 
-        result = subprocess.check_output([
+        out = subprocess.check_output([
             "nvidia-smi",
             "--query-gpu=utilization.gpu,utilization.memory,memory.total,memory.used,power.draw,temperature.gpu",
-            "--format=csv,noheader,nounits"
+            "--format=csv,noheader,nounits",
         ]).decode().strip()
 
-        stats = []
+        rows = []
 
-        for line in result.split("\n"):
+        for line in out.splitlines():
 
-            vals = [x.strip() for x in line.split(",")]
+            v = [x.strip() for x in line.split(",")]
 
-            stats.append({
+            rows.append({
 
-                "gpu_util_percent": safe_int(vals[0]),
-                "mem_util_percent": safe_int(vals[1]),
-                "memory_total_mb": safe_int(vals[2]),
-                "memory_used_mb": safe_int(vals[3]),
-                "power_w": safe_float(vals[4]),
-                "temp_c": safe_int(vals[5]),
+                "gpu_util_percent": safe_int(v[0]),
+                "mem_util_percent": safe_int(v[1]),
+                "memory_total_mb": safe_int(v[2]),
+                "memory_used_mb": safe_int(v[3]),
+                "power_w": safe_float(v[4]),
+                "temp_c": safe_int(v[5]),
 
             })
 
-        return stats
+        return {
+            "available": True,
+            "gpus": rows
+        }
 
     except Exception as e:
 
         return {
-            "error": str(e)
+            "available": False,
+            "reason": str(e)
         }
 
 
-# ============================================================
-# AUTO-TUNING
-# ============================================================
+def recommend_vmas_gpu(info, aggressiveness="max"):
+    """
+    VMAS is vectorized / GPU-friendly.
+    Here we scale mainly with VRAM and GPU availability, not only CPU cores.
+    """
 
+    cpu_cores = info["cpu"]["physical_cores"]
+    ram_gb = info["ram"]["total_gb"]
+    has_cuda = info["cuda"]["available"]
+    vram_gb = info["cuda"]["gpus"][0]["vram_gb"] if has_cuda else 0
 
-def recommend_config(cpu_info, ram_info, gpu_info):
-
-    physical_cores = cpu_info["physical_cores"]
-    logical_cores = cpu_info["logical_cores"]
-    total_ram = ram_info["total_gb"]
-
-    config = {}
-
-    # --------------------------------------------------------
-    # DEVICE SELECTION
-    # --------------------------------------------------------
-
-    if gpu_info["cuda_available"]:
-
-        config["train_device"] = "cuda"
-        config["sampling_device"] = "cuda"
-
-        # Replay buffers are often better on CPU
-        config["buffer_device"] = "cpu"
-
+    if not has_cuda:
+        base_envs = max(8, cpu_cores)
     else:
+        if vram_gb >= 96:
+            base_envs = 256
+        elif vram_gb >= 48:
+            base_envs = 128
+        elif vram_gb >= 24:
+            base_envs = 64
+        else:
+            base_envs = 32
 
-        config["train_device"] = "cpu"
-        config["sampling_device"] = "cpu"
-        config["buffer_device"] = "cpu"
-
-    # --------------------------------------------------------
-    # ENV PARALLELISM
-    # --------------------------------------------------------
-
-    if physical_cores >= 64:
-        n_envs_per_worker = 64
-    elif physical_cores >= 32:
-        n_envs_per_worker = 32
-    elif physical_cores >= 16:
-        n_envs_per_worker = 16
-    elif physical_cores >= 8:
-        n_envs_per_worker = 8
+    if aggressiveness == "safe":
+        n_envs = max(16, base_envs // 4)
+    elif aggressiveness == "balanced":
+        n_envs = max(32, base_envs // 2)
     else:
-        n_envs_per_worker = 4
+        n_envs = base_envs
 
-    config["on_policy_n_envs_per_worker"] = n_envs_per_worker
-    config["off_policy_n_envs_per_worker"] = n_envs_per_worker
+    frames_per_batch = n_envs * 512
 
-    # --------------------------------------------------------
-    # FRAMES PER BATCH
-    # --------------------------------------------------------
+    if aggressiveness == "max":
+        frames_per_batch = n_envs * 1024
 
-    # Rough heuristic:
-    # more envs -> larger batch
+    frames_per_batch = round_power2(frames_per_batch)
 
-    frames_per_batch = n_envs_per_worker * 512
+    minibatch_size = max(1024, frames_per_batch // 8)
+    minibatch_size = round_power2(minibatch_size)
 
-    # Align power of two
-    frames_per_batch = 2 ** math.ceil(math.log2(frames_per_batch))
+    if vram_gb >= 96 and aggressiveness == "max":
+        minibatch_size = max(minibatch_size, 8192)
 
-    config["on_policy_collected_frames_per_batch"] = frames_per_batch
-    config["off_policy_collected_frames_per_batch"] = frames_per_batch
+    evaluation_interval = frames_per_batch * 10
+    checkpoint_interval = frames_per_batch * 10
 
-    # --------------------------------------------------------
-    # MINIBATCH SIZE
-    # --------------------------------------------------------
+    cfg = {
+        "sampling_device": "cuda" if has_cuda else "cpu",
+        "train_device": "cuda" if has_cuda else "cpu",
+        "buffer_device": "cpu",
 
-    minibatch_size = max(512, frames_per_batch // 8)
+        "parallel_collection": False,
 
-    # Keep powers of two
-    minibatch_size = 2 ** math.floor(math.log2(minibatch_size))
+        "on_policy_n_envs_per_worker": n_envs,
+        "on_policy_collected_frames_per_batch": frames_per_batch,
+        "on_policy_minibatch_size": minibatch_size,
+        "on_policy_n_minibatch_iters": 30 if aggressiveness == "max" else 20,
 
-    config["on_policy_minibatch_size"] = minibatch_size
+        "off_policy_n_envs_per_worker": n_envs,
+        "off_policy_collected_frames_per_batch": frames_per_batch,
+        "off_policy_train_batch_size": 8192 if ram_gb >= 96 else 4096,
+        "off_policy_memory_size": 10_000_000 if ram_gb >= 96 else 5_000_000,
 
-    # --------------------------------------------------------
-    # PPO-LIKE ITERATIONS
-    # --------------------------------------------------------
+        "evaluation_interval": evaluation_interval,
+        "checkpoint_interval": checkpoint_interval,
+        "checkpoint_at_end": True,
+    }
 
-    if gpu_info["cuda_available"]:
-        config["on_policy_n_minibatch_iters"] = 20
+    return cfg
+
+
+def recommend_cpu_bound(info, aggressiveness="balanced"):
+    cpu_cores = info["cpu"]["physical_cores"]
+    ram_gb = info["ram"]["total_gb"]
+    has_cuda = info["cuda"]["available"]
+
+    reserved = 2
+    workers_capacity = max(1, cpu_cores - reserved)
+
+    if aggressiveness == "safe":
+        n_envs = max(4, workers_capacity // 2)
+    elif aggressiveness == "balanced":
+        n_envs = workers_capacity
     else:
-        config["on_policy_n_minibatch_iters"] = 10
+        n_envs = workers_capacity * 2
 
-    # --------------------------------------------------------
-    # OFF-POLICY BATCH SIZE
-    # --------------------------------------------------------
+    frames_per_batch = round_power2(max(4096, n_envs * 512))
+    minibatch_size = round_power2(max(512, frames_per_batch // 8))
 
-    if total_ram >= 128:
-        train_batch_size = 8192
-        memory_size = 10_000_000
+    return {
+        "sampling_device": "cpu",
+        "train_device": "cuda" if has_cuda else "cpu",
+        "buffer_device": "cpu",
 
-    elif total_ram >= 64:
-        train_batch_size = 4096
-        memory_size = 5_000_000
+        "parallel_collection": True,
 
-    elif total_ram >= 32:
-        train_batch_size = 2048
-        memory_size = 2_000_000
+        "on_policy_n_envs_per_worker": n_envs,
+        "on_policy_collected_frames_per_batch": frames_per_batch,
+        "on_policy_minibatch_size": minibatch_size,
+        "on_policy_n_minibatch_iters": 20,
 
-    else:
-        train_batch_size = 1024
-        memory_size = 1_000_000
+        "off_policy_n_envs_per_worker": n_envs,
+        "off_policy_collected_frames_per_batch": frames_per_batch,
+        "off_policy_train_batch_size": 4096 if ram_gb >= 64 else 2048,
+        "off_policy_memory_size": 5_000_000 if ram_gb >= 64 else 2_000_000,
 
-    config["off_policy_train_batch_size"] = train_batch_size
-    config["off_policy_memory_size"] = memory_size
-
-    # --------------------------------------------------------
-    # EVALUATION
-    # --------------------------------------------------------
-
-    config["evaluation_interval"] = frames_per_batch * 20
-    config["checkpoint_interval"] = frames_per_batch * 20
-    config["checkpoint_at_end"] = True
-
-    return config
+        "evaluation_interval": frames_per_batch * 10,
+        "checkpoint_interval": frames_per_batch * 10,
+        "checkpoint_at_end": True,
+    }
 
 
-# ============================================================
-# COMMAND GENERATOR
-# ============================================================
-
-
-def generate_cli(config, algorithm="mappo", task="vmas/balance"):
-
-    cmd = [
+def generate_cli(cfg, algorithm, task):
+    parts = [
         "python benchmarl/run.py",
         f"algorithm={algorithm}",
         f"task={task}",
     ]
 
-    for k, v in config.items():
-
-        if isinstance(v, str):
-            cmd.append(f'experiment.{k}="{v}"')
+    for k, v in cfg.items():
+        if isinstance(v, bool):
+            v = str(v).lower()
+            parts.append(f"experiment.{k}={v}")
+        elif isinstance(v, str):
+            parts.append(f'experiment.{k}="{v}"')
         else:
-            cmd.append(f"experiment.{k}={v}")
+            parts.append(f"experiment.{k}={v}")
 
-    return " \\\n    ".join(cmd)
-
-
-# ============================================================
-# YAML GENERATOR
-# ============================================================
+    return " \\\n    ".join(parts)
 
 
-def generate_yaml(config):
-
+def generate_yaml(cfg):
     lines = []
-
-    for k, v in config.items():
-        lines.append(f"{k}: {v}")
-
+    for k, v in cfg.items():
+        if isinstance(v, str):
+            lines.append(f'{k}: "{v}"')
+        elif isinstance(v, bool):
+            lines.append(f"{k}: {str(v)}")
+        else:
+            lines.append(f"{k}: {v}")
     return "\n".join(lines)
 
 
-# ============================================================
-# MAIN
-# ============================================================
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--task", default="vmas/balance")
+    parser.add_argument("--algorithm", default="mappo")
+    parser.add_argument("--profile", choices=["vmas", "cpu"], default="vmas")
+    parser.add_argument("--aggressiveness", choices=["safe", "balanced", "max"], default="max")
+    args = parser.parse_args()
+
+    info = get_system_info()
+    smi = get_nvidia_smi()
+
+    print("\n================ SYSTEM INFO ================\n")
+    pprint(info)
+
+    print("\n================ NVIDIA-SMI ================\n")
+    pprint(smi)
+
+    if args.profile == "vmas" or args.task.startswith("vmas/"):
+        cfg = recommend_vmas_gpu(info, args.aggressiveness)
+    else:
+        cfg = recommend_cpu_bound(info, args.aggressiveness)
+
+    print("\n================ RECOMMENDED CONFIG ================\n")
+    pprint(cfg)
+
+    print("\n================ YAML OVERRIDE ================\n")
+    print(generate_yaml(cfg))
+
+    print("\n================ BENCHMARL COMMAND ================\n")
+    print(generate_cli(cfg, args.algorithm, args.task))
 
 
 if __name__ == "__main__":
-
-    print("\n================ CPU INFO ================\n")
-    cpu_info = get_cpu_info()
-    pprint(cpu_info)
-
-    print("\n================ RAM INFO ================\n")
-    ram_info = get_ram_info()
-    pprint(ram_info)
-
-    print("\n================ GPU INFO ================\n")
-    gpu_info = get_gpu_info()
-    pprint(gpu_info)
-
-    print("\n================ NVIDIA-SMI ================\n")
-    gpu_stats = get_nvidia_smi()
-    pprint(gpu_stats)
-
-    print("\n================ AUTO CONFIG ================\n")
-
-    config = recommend_config(
-        cpu_info,
-        ram_info,
-        gpu_info,
-    )
-
-    pprint(config)
-
-    print("\n================ YAML OVERRIDE ================\n")
-
-    yaml_text = generate_yaml(config)
-    print(yaml_text)
-
-    print("\n================ BENCHMARL COMMAND ================\n")
-
-    cmd = generate_cli(config)
-    print(cmd)
+    main()
