@@ -51,6 +51,7 @@ setup(
         "tqdm",
         "hydra-core",
         "torchvision",
+        "psutil",
         "av<14",
         "numpy",
     ],
