@@ -70,6 +70,32 @@ def get_gpu_info():
 # ============================================================
 
 
+def safe_int(x):
+
+    x = x.strip()
+
+    if x in ["[N/A]", "N/A", ""]:
+        return None
+
+    try:
+        return int(float(x))
+    except:
+        return None
+
+
+def safe_float(x):
+
+    x = x.strip()
+
+    if x in ["[N/A]", "N/A", ""]:
+        return None
+
+    try:
+        return float(x)
+    except:
+        return None
+
+
 def get_nvidia_smi():
 
     try:
@@ -83,20 +109,24 @@ def get_nvidia_smi():
         stats = []
 
         for line in result.split("\n"):
+
             vals = [x.strip() for x in line.split(",")]
 
             stats.append({
-                "gpu_util_percent": int(vals[0]),
-                "mem_util_percent": int(vals[1]),
-                "memory_total_mb": int(vals[2]),
-                "memory_used_mb": int(vals[3]),
-                "power_w": float(vals[4]),
-                "temp_c": int(vals[5]),
+
+                "gpu_util_percent": safe_int(vals[0]),
+                "mem_util_percent": safe_int(vals[1]),
+                "memory_total_mb": safe_int(vals[2]),
+                "memory_used_mb": safe_int(vals[3]),
+                "power_w": safe_float(vals[4]),
+                "temp_c": safe_int(vals[5]),
+
             })
 
         return stats
 
     except Exception as e:
+
         return {
             "error": str(e)
         }
