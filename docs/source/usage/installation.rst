@@ -96,6 +96,15 @@ MAgent2
 
    pip install git+https://github.com/Farama-Foundation/MAgent2
 
+ORBITAL
+^^^^^^^
+:github:`null` `GitHub <https://github.com/julien6/ORBITAL>`__
+
+
+.. code-block:: console
+
+   pip install -e ".[orbital]"
+
 
 Install models
 --------------

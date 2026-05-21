@@ -126,6 +126,12 @@ pip install dm-meltingpot
 pip install git+https://github.com/Farama-Foundation/MAgent2
 ```
 
+##### ORBITAL
+
+```bash
+pip install -e ".[orbital]"
+```
+
 ##### SMACv2
 
 Follow the instructions on the environment [repository](https://github.com/oxwhirl/smacv2).
@@ -257,6 +263,7 @@ They differ based on many aspects, here is a table with the current environments
 | [SISL](https://github.com/sisl/MADRL)                               | [2](benchmarl/conf/task/pettingzoo)  | Cooperative               | No           | Shared                        | Continuous            |        No        |
 | [MeltingPot](https://github.com/google-deepmind/meltingpot)         | [49](benchmarl/conf/task/meltingpot) | Cooperative + Competitive | Yes          | Independent                   | Discrete              |        No        |
 | [MAgent2](https://github.com/Farama-Foundation/magent2)             | [1](benchmarl/conf/task/magent)      | Cooperative + Competitive | Yes          | Global in groups              | Discrete              |        No        |
+| [ORBITAL](https://github.com/julien6/ORBITAL)                       | [1](benchmarl/conf/task/pettingzoo/orbital.yaml) | Cooperative      | No           | Shared + Independent          | Discrete              |        No        |
 
 
 > [!NOTE]  

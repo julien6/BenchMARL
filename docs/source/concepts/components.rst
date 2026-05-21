@@ -87,7 +87,7 @@ They differ based on many aspects, here is a table with the current environments
     +-------------------------------------------------+-------+---------------------------+--------------+-------------------------------+-----------------------+------------+
     |   :class:`~benchmarl.environments.Smacv2Task`   |  15   |        Cooperative        |     Yes      |            Global             |       Discrete        |     No     |
     +-------------------------------------------------+-------+---------------------------+--------------+-------------------------------+-----------------------+------------+
-    | :class:`~benchmarl.environments.PettingZooTask` |  10   | Cooperative + Competitive |   Yes + No   |     Shared + Independent      | Continuous + Discrete |     No     |
+    | :class:`~benchmarl.environments.PettingZooTask` |  11   | Cooperative + Competitive |   Yes + No   |     Shared + Independent      | Continuous + Discrete |     No     |
     +-------------------------------------------------+-------+---------------------------+--------------+-------------------------------+-----------------------+------------+
     | :class:`~benchmarl.environments.MeltingPotTask` |  49   | Cooperative + Competitive |     Yes      |          Independent          |       Discrete        |     No     |
     +-------------------------------------------------+-------+---------------------------+--------------+-------------------------------+-----------------------+------------+

@@ -1,0 +1,15 @@
+defaults:
+  - pettingzoo_orbital_config
+  - _self_
+
+num_satellites: 6
+num_tasks: 8
+task_spawn_rate: 0.15
+energy_budget: 40.0
+comm_radius: 3
+p_link_drop: 0.05
+adversarial_rate: 0.05
+enable_debris: True
+reward_mode: "shared"
+max_steps: 256
+render_mode: "rgb_array"

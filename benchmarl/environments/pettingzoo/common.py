@@ -7,8 +7,9 @@
 import copy
 from typing import Callable, Dict, List, Optional
 
+import torch
 from torchrl.data import Composite
-from torchrl.envs import EnvBase, PettingZooEnv
+from torchrl.envs import EnvBase, PettingZooEnv, PettingZooWrapper
 
 from benchmarl.environments.common import Task, TaskClass
 
@@ -26,6 +27,13 @@ class PettingZooClass(TaskClass):
         config = copy.deepcopy(self.config)
         if self.supports_continuous_actions() and self.supports_discrete_actions():
             config.update({"continuous_actions": continuous_actions})
+        if self.name == "ORBITAL":
+            return lambda: PettingZooWrapper(
+                categorical_actions=True,
+                device=device,
+                seed=seed,
+                env=_get_orbital_env(config),
+            )
         return lambda: PettingZooEnv(
             categorical_actions=True,
             device=device,
@@ -62,6 +70,7 @@ class PettingZooClass(TaskClass):
             "SIMPLE_SPREAD",
             "SIMPLE_TAG",
             "SIMPLE_WORLD_COMM",
+            "ORBITAL",
         }:
             return True
         return False
@@ -81,9 +90,13 @@ class PettingZooClass(TaskClass):
         return False
 
     def has_render(self, env: EnvBase) -> bool:
+        if self.name == "ORBITAL":
+            return self.config["render_mode"] is not None
         return True
 
     def max_steps(self, env: EnvBase) -> int:
+        if self.name == "ORBITAL":
+            return self.config["max_steps"]
         return self.config["max_cycles"]
 
     def group_map(self, env: EnvBase) -> Dict[str, List[str]]:
@@ -152,7 +165,65 @@ class PettingZooTask(Task):
     SIMPLE_SPREAD = None
     SIMPLE_TAG = None
     SIMPLE_WORLD_COMM = None
+    ORBITAL = None
 
     @staticmethod
     def associated_class():
         return PettingZooClass
+
+
+def _get_orbital_env(config):
+    try:
+        from orbital import parallel_env
+    except ImportError:
+        raise ImportError(
+            "Module `orbital` not found, install ORBITAL with "
+            "`pip install -e /path/to/ORBITAL`"
+        )
+    return _filter_info(parallel_env(**config))
+
+
+def _filter_info(env):
+    try:
+        from pettingzoo.utils.wrappers import BaseParallelWrapper
+    except ImportError:
+        raise ImportError(
+            "Module `pettingzoo` not found, install ORBITAL before using it "
+            "with BenchMARL"
+        )
+
+    class TensorInfoWrapper(BaseParallelWrapper):
+        @staticmethod
+        def _filter(info_by_agent):
+            return {
+                agent: {
+                    key: value
+                    for key, value in info.items()
+                    if _is_tensor_compatible(value)
+                }
+                for agent, info in info_by_agent.items()
+            }
+
+        def reset(self, seed=None, options=None):
+            observation, info = super().reset(seed=seed, options=options)
+            return observation, self._filter(info)
+
+        def step(self, actions):
+            observation, reward, terminated, truncated, info = super().step(actions)
+            return (
+                observation,
+                reward,
+                terminated,
+                truncated,
+                self._filter(info),
+            )
+
+    return TensorInfoWrapper(env)
+
+
+def _is_tensor_compatible(value) -> bool:
+    try:
+        torch.as_tensor(value)
+    except (RuntimeError, TypeError, ValueError):
+        return False
+    return True

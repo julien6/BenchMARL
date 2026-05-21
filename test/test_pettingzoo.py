@@ -22,7 +22,7 @@ from benchmarl.algorithms.common import AlgorithmConfig
 from benchmarl.environments import PettingZooTask, Task
 from benchmarl.experiment import Experiment
 
-from utils import _has_pettingzoo
+from utils import _has_orbital, _has_pettingzoo
 from utils_experiment import ExperimentUtils
 
 
@@ -77,6 +77,10 @@ class TestPettingzoo:
         experiment_config,
         mlp_sequence_config,
     ):
+        if task is PettingZooTask.ORBITAL and not _has_orbital:
+            pytest.skip("ORBITAL not found")
+        if task is PettingZooTask.ORBITAL:
+            experiment_config.render = False
         task = task.get_from_yaml()
         experiment = Experiment(
             algorithm_config=algo_config.get_from_yaml(),
