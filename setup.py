@@ -51,6 +51,7 @@ setup(
         "tqdm",
         "hydra-core",
         "torchvision",
+        "id-marl_eval",
         "psutil",
         "av<14",
         "numpy",

@@ -7,6 +7,9 @@
 import collections
 import importlib
 import json
+import matplotlib
+matplotlib.use("TkAgg")
+
 from os import walk
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -250,8 +253,10 @@ class Plotting:
 
 if __name__ == "__main__":
     raw_dict = get_raw_dict_from_multirun_folder(
-        multirun_folder="/Users/matbet/PycharmProjects/BenchMARL/benchmarl/multirun/2023-09-22/17-21-34"
+        multirun_folder="/home/julien/Documents/BenchMARL/outputs/2026-05-21/16-32-44"
     )
+    #     multirun_folder="/Users/matbet/PycharmProjects/BenchMARL/benchmarl/multirun/2023-09-22/17-21-34"
+    # )
     processed_data = Plotting.process_data(raw_dict)
     (
         environment_comparison_matrix,
@@ -269,6 +274,6 @@ if __name__ == "__main__":
     )
 
     Plotting.task_sample_efficiency_curves(
-        processed_data=processed_data, env="vmas", task="navigation"
+        processed_data=processed_data, env="vmas", task="balance"
     )
     plt.show()

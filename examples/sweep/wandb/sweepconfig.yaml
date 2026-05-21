@@ -1,11 +1,11 @@
-program: PATH_TO_YOUR_DIRECTORY\benchmarl\run.py
-project: "YOUR_PROJECT_NAME"
-entity: "YOUR_ENTITY_NAME"
+program: /home/julien/Documents/BenchMARL/benchmarl/run.py
+project: "benchmarl"
+entity: "julien-soule-university-of-luxembourg"
 
 method: bayes 
 
 metric:
-  name: eval/agent/reward/episode_reward_mean
+  name: eval/agents/reward/episode_reward_mean
   goal: maximize
 
 parameters:
@@ -17,10 +17,6 @@ parameters:
     min: 0.000025
     # distribution: uniform
 
-  experiment.max_n_iters:
-   value: 321
-  experiment.on_policy_collected_frames_per_batch: 
-    value: 4040
   experiment.on_policy_n_minibatch_iters:
     values: [1, 2]
 
@@ -33,11 +29,11 @@ parameters:
       min: 0
       distribution: uniform
 
-  # task hyperparameters
-  task.goal_type:
-    value: "corr"
-    # distribution: categorical
+  task:
+    value: "vmas/balance"
 
+  algorithm:
+    value: "mappo"
         
 early_terminate:
   type: hyperband

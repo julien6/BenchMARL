@@ -4,6 +4,9 @@
 **/outputs/
 **/multirun/
 
+# WandB
+examples/sweep/wandb/wandb/
+
 # Docs
 docs/output/
 docs/source/generated/
