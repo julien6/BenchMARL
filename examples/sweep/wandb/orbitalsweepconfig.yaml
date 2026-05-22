@@ -88,7 +88,7 @@ parameters:
     value: true
 
   experiment.evaluation_interval:
-    value: 41040
+    value: 24624
 
   experiment.evaluation_episodes:
     value: 32
