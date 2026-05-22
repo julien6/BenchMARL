@@ -161,30 +161,71 @@ evaluation behavior, not by a single reward spike.
 
 ## Phase D: validate finalists
 
-Validate each finalist on the default task with seeds `0` through `4`:
+The completed default-MAPPO sweep synced from spark is post-processed locally
+from BenchMARL JSON files, not from a single W&B summary point. Reproduce the
+shortlist with:
 
 ```bash
-python fine_tuned/pettingzoo_orbital/pettingzoo_orbital_run.py \
-  seed=SEED \
-  experiment.max_n_frames=3000000 \
-  experiment.evaluation_episodes=32 \
-  experiment.lr=FINALIST_LR \
-  algorithm.entropy_coef=FINALIST_ENTROPY \
-  algorithm.clip_epsilon=FINALIST_CLIP \
-  algorithm.lmbda=FINALIST_LAMBDA
+cd /home/julien/Documents/BenchMARL
+python examples/sweep/wandb/orbital_hpo_postprocess.py shortlist
 ```
 
-Run seeds `0` through `2` again for each stress variant:
+The committed shortlist in `orbital_finalists.yaml` archives:
+
+- finalist `A` from run `2026-05-22/15-07-27`
+- finalist `B` from run `2026-05-22/13-14-48`
+- fallback `C` from run `2026-05-22/14-15-09`
+
+The shortlist score is the mean of the final five evaluation means. Before
+launching long validation, inspect `A`, `B`, and fallback `C` in W&B with the
+ORBITAL mission metrics, PPO diagnostics, and evaluation videos above.
+
+Print the 10 default-task multi-seed commands for finalists `A` and `B`:
 
 ```bash
-task.p_link_drop=0.15
-task.adversarial_rate=0.10
-task.energy_budget=32.0
+python examples/sweep/wandb/orbital_hpo_postprocess.py \
+  validation-commands --mode default
+```
+
+Run those commands sequentially on the training host:
+
+```bash
+python examples/sweep/wandb/orbital_hpo_postprocess.py \
+  validation-commands --mode default --run
+```
+
+Then print or execute the 18 stress commands:
+
+```bash
+python examples/sweep/wandb/orbital_hpo_postprocess.py \
+  validation-commands --mode stress
+python examples/sweep/wandb/orbital_hpo_postprocess.py \
+  validation-commands --mode stress --run
+```
+
+Each generated command pins `experiment.organizational_model=orbital_none`,
+uses 3M frames and 32 evaluation episodes, and adds W&B tags for candidate,
+scenario, and seed. Stress validation keeps the same final hyperparameters and
+changes only one ORBITAL task knob per scenario:
+
+| Scenario | Override |
+| --- | --- |
+| `network_stress` | `task.p_link_drop=0.15` |
+| `cyber_stress` | `task.adversarial_rate=0.10` |
+| `resource_stress` | `task.energy_budget=32.0` |
+
+After validation outputs are synced locally, summarize a validation output
+folder with:
+
+```bash
+python examples/sweep/wandb/orbital_hpo_postprocess.py \
+  validation-summary --outputs PATH_TO_SYNCED_VALIDATION_OUTPUTS
 ```
 
 Promote the configuration with the best weighted rank: default ORBITAL counts
 twice and each stress variant counts once. Break ties with default mean return,
-then default variance, then delivery and fleet-health diagnostics.
+then default variance, then delivery and fleet-health diagnostics. Only then
+replace the placeholder hyperparameters in the fine-tuned config.
 
 ## Fine-tuned config
 

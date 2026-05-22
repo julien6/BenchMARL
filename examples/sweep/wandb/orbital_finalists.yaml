@@ -1,0 +1,40 @@
+# Candidates shortlisted from the completed ORBITAL MAPPO sweep
+# `sweep-h4lb09ri`. Promote only after multi-seed validation.
+finalists:
+  A:
+    source_run: "2026-05-22/15-07-27"
+    source_overrides: "outputs/2026-05-22/15-07-27/.hydra/overrides.yaml"
+    sweep_tail_mean: 3100.9
+    experiment:
+      lr: 0.00013563955027535036
+      gamma: 0.995
+      on_policy_n_minibatch_iters: 10
+    algorithm:
+      entropy_coef: 0.027471226578243583
+      clip_epsilon: 0.3
+      lmbda: 0.9
+  B:
+    source_run: "2026-05-22/13-14-48"
+    source_overrides: "outputs/2026-05-22/13-14-48/.hydra/overrides.yaml"
+    sweep_tail_mean: 2941.8
+    experiment:
+      lr: 0.00020502151984682325
+      gamma: 0.995
+      on_policy_n_minibatch_iters: 5
+    algorithm:
+      entropy_coef: 0.022801836300179484
+      clip_epsilon: 0.2
+      lmbda: 0.9
+fallbacks:
+  C:
+    source_run: "2026-05-22/14-15-09"
+    source_overrides: "outputs/2026-05-22/14-15-09/.hydra/overrides.yaml"
+    sweep_tail_mean: 2735.2
+    experiment:
+      lr: 0.0001876941320305374
+      gamma: 0.995
+      on_policy_n_minibatch_iters: 5
+    algorithm:
+      entropy_coef: 0.02560234719660906
+      clip_epsilon: 0.3
+      lmbda: 0.9
