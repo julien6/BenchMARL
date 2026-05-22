@@ -8,15 +8,21 @@ promoted to `fine_tuned/pettingzoo_orbital/conf/config.yaml`.
 
 ## Prerequisites
 
-- Install BenchMARL and W&B in the training environment.
-- Install ORBITAL from the local clone before launching PettingZoo runs:
+- Install BenchMARL plus W&B media support in the training environment:
 
 ```bash
-pip install -e /home/julien/Documents/ORBITAL
+pip install 'wandb[media]'
+```
+- Install ORBITAL with the 2D renderer from the local clone before launching
+  PettingZoo runs:
+
+```bash
+pip install -e '/home/julien/Documents/ORBITAL[render]'
 ```
 
-- Keep ORBITAL rendering disabled for HPO with `task.render_mode=null` and
-  `experiment.render=false`.
+- ORBITAL videos require both `task.render_mode=rgb_array` and
+  `experiment.render=true`. The fine-tuned config and committed sweep enable
+  those switches so evaluation videos are sent to W&B.
 - W&B parameters use dotted Hydra override names such as `experiment.lr`.
 
 ## Logged ORBITAL diagnostics
@@ -65,7 +71,7 @@ python benchmarl/run.py \
   algorithm=mappo \
   task=pettingzoo/orbital \
   seed=0 \
-  task.render_mode=null \
+  task.render_mode=rgb_array \
   experiment.sampling_device=cpu \
   experiment.train_device=cuda \
   experiment.buffer_device=cpu \
@@ -79,7 +85,7 @@ python benchmarl/run.py \
   experiment.evaluation_interval=40960 \
   experiment.evaluation_episodes=16 \
   experiment.evaluation_static=true \
-  experiment.render=false
+  experiment.render=true
 ```
 
 Compare one short profiling run against the safe collection profile by replacing:
@@ -93,6 +99,13 @@ experiment.on_policy_minibatch_size=512
 Keep the balanced profile unless it loses clear stability or wall-clock
 efficiency. It already occupies most of the 20 physical CPU cores, so run one
 balanced W&B agent at a time on the target host.
+
+For pure throughput profiling or reward-only sensitivity runs, disable videos
+explicitly:
+
+```bash
+task.render_mode=null experiment.render=false
+```
 
 ## Phase B: controlled 1D sensitivity runs
 
@@ -129,6 +142,7 @@ The committed sweep uses:
 - Bayesian search with Hyperband early termination.
 - `MAPPO` and `pettingzoo/orbital`.
 - A fixed balanced CPU collection profile.
+- The W&B logger only, so W&B media support handles sweep videos.
 - Search over learning rate, entropy, PPO clip, discounting, GAE lambda, and
   on-policy optimization pressure.
 

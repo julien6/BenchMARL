@@ -13,7 +13,7 @@ hydra:
 seed: 0
 
 task:
-  render_mode: null
+  render_mode: "rgb_array"
 
 experiment:
   sampling_device: "cpu"
@@ -38,7 +38,7 @@ experiment:
   on_policy_minibatch_size: 1024
 
   evaluation: True
-  render: False
+  render: True
   evaluation_interval: 40_960
   evaluation_episodes: 32
   evaluation_static: True

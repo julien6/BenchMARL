@@ -22,7 +22,7 @@ parameters:
     value: 0
 
   task.render_mode:
-    value: null
+    value: "rgb_array"
 
   experiment.sampling_device:
     value: "cpu"
@@ -42,6 +42,9 @@ parameters:
   experiment.share_policy_params:
     value: true
 
+  experiment.loggers:
+    value: "[wandb]"
+
   experiment.max_n_frames:
     value: 1500000
 
@@ -58,7 +61,7 @@ parameters:
     value: true
 
   experiment.render:
-    value: false
+    value: true
 
   experiment.on_policy_n_envs_per_worker:
     value: 18
