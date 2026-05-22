@@ -203,7 +203,7 @@ python examples/sweep/wandb/orbital_hpo_postprocess.py \
   validation-commands --mode stress --run
 ```
 
-Each generated command pins `experiment.organizational_model=orbital_none`,
+Each generated command pins the `orbital_none` organizational model,
 uses 3M frames and 32 evaluation episodes, and adds W&B tags for candidate,
 scenario, and seed. Stress validation keeps the same final hyperparameters and
 changes only one ORBITAL task knob per scenario:

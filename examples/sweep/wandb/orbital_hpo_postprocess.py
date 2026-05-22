@@ -195,7 +195,7 @@ def validation_command(
         python_bin,
         "fine_tuned/pettingzoo_orbital/pettingzoo_orbital_run.py",
         f"seed={seed}",
-        "experiment.organizational_model=orbital_none",
+        "++experiment.organizational_model=orbital_none",
         "experiment.max_n_frames=3000000",
         "experiment.evaluation_episodes=32",
         *candidate_overrides(candidate),
