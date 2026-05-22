@@ -52,7 +52,7 @@ parameters:
     value: true
 
   experiment.evaluation_interval:
-    value: 40960
+    value: 41040
 
   experiment.evaluation_episodes:
     value: 16
@@ -67,7 +67,7 @@ parameters:
     value: 18
 
   experiment.on_policy_collected_frames_per_batch:
-    value: 8192
+    value: 8208
 
   experiment.on_policy_minibatch_size:
     value: 1024

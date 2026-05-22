@@ -32,14 +32,14 @@ experiment:
   max_n_iters: null
   max_n_frames: 3_000_000
 
-  on_policy_collected_frames_per_batch: 8192
+  on_policy_collected_frames_per_batch: 8208
   on_policy_n_envs_per_worker: 18
   on_policy_n_minibatch_iters: 20
   on_policy_minibatch_size: 1024
 
   evaluation: True
   render: True
-  evaluation_interval: 40_960
+  evaluation_interval: 41_040
   evaluation_episodes: 32
   evaluation_static: True
 

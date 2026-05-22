@@ -78,11 +78,11 @@ python benchmarl/run.py \
   experiment.parallel_collection=true \
   experiment.prefer_continuous_actions=false \
   experiment.on_policy_n_envs_per_worker=18 \
-  experiment.on_policy_collected_frames_per_batch=8192 \
+  experiment.on_policy_collected_frames_per_batch=8208 \
   experiment.on_policy_minibatch_size=1024 \
   experiment.on_policy_n_minibatch_iters=20 \
   experiment.max_n_frames=500000 \
-  experiment.evaluation_interval=40960 \
+  experiment.evaluation_interval=41040 \
   experiment.evaluation_episodes=16 \
   experiment.evaluation_static=true \
   experiment.render=true
@@ -92,13 +92,18 @@ Compare one short profiling run against the safe collection profile by replacing
 
 ```bash
 experiment.on_policy_n_envs_per_worker=9 \
-experiment.on_policy_collected_frames_per_batch=4096 \
+experiment.on_policy_collected_frames_per_batch=4104 \
 experiment.on_policy_minibatch_size=512
 ```
 
 Keep the balanced profile unless it loses clear stability or wall-clock
 efficiency. It already occupies most of the 20 physical CPU cores, so run one
 balanced W&B agent at a time on the target host.
+
+Keep `on_policy_collected_frames_per_batch` divisible by
+`on_policy_n_envs_per_worker`. BenchMARL evaluates only when collected
+`total_frames` lands exactly on `evaluation_interval`, so the balanced profile
+uses `8208 = 18 * 456` and evaluates every `41040 = 5 * 8208` frames.
 
 For pure throughput profiling or reward-only sensitivity runs, disable videos
 explicitly:
