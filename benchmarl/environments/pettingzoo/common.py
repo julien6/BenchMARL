@@ -198,7 +198,7 @@ def _filter_info(env):
             return {
                 agent: {
                     key: value
-                    for key, value in info.items()
+                    for key, value in _flatten_orbital_info(info).items()
                     if _is_tensor_compatible(value)
                 }
                 for agent, info in info_by_agent.items()
@@ -219,6 +219,23 @@ def _filter_info(env):
             )
 
     return TensorInfoWrapper(env)
+
+
+def _flatten_orbital_info(info):
+    reward_components = info.get("reward_components")
+    if not isinstance(reward_components, dict):
+        return info
+
+    flat_info = {
+        key: value for key, value in info.items() if key != "reward_components"
+    }
+    flat_info.update(
+        {
+            f"reward_component_{key}": value
+            for key, value in reward_components.items()
+        }
+    )
+    return flat_info
 
 
 def _is_tensor_compatible(value) -> bool:

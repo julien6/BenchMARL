@@ -1,0 +1,57 @@
+defaults:
+  - experiment: base_experiment
+  - algorithm: mappo
+  - task: pettingzoo/orbital
+  - model: layers/mlp
+  - model@critic_model: layers/mlp
+  - _self_
+
+hydra:
+  searchpath:
+    - pkg://benchmarl/conf
+
+seed: 0
+
+task:
+  render_mode: null
+
+experiment:
+  sampling_device: "cpu"
+  train_device: "cuda"
+  buffer_device: "cpu"
+
+  share_policy_params: True
+  prefer_continuous_actions: False
+  parallel_collection: True
+
+  gamma: 0.99
+  lr: 0.0001
+  clip_grad_norm: True
+  clip_grad_val: 5
+
+  max_n_iters: null
+  max_n_frames: 3_000_000
+
+  on_policy_collected_frames_per_batch: 8192
+  on_policy_n_envs_per_worker: 18
+  on_policy_n_minibatch_iters: 20
+  on_policy_minibatch_size: 1024
+
+  evaluation: True
+  render: False
+  evaluation_interval: 40_960
+  evaluation_episodes: 32
+  evaluation_static: True
+
+  loggers: [wandb]
+  create_json: True
+
+  save_folder: null
+  restore_file: null
+  checkpoint_interval: 0
+  checkpoint_at_end: True
+
+algorithm:
+  entropy_coef: 0.01
+  clip_epsilon: 0.2
+  lmbda: 0.95

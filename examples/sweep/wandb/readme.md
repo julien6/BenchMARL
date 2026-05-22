@@ -1,81 +1,181 @@
-# Using Weights & Biases (W&B) Sweeps with BenchMARL
+# ORBITAL MAPPO HPO with W&B Sweeps
 
-You can improve the performance of your RL agents with hyperparameter tuning. It's easy to train multiple models with different hyperparameters using hyperparameter sweep on W&B with BenchMARL and Hydra. Modify `sweepconfig.yaml` to define your sweep configuration and run it from the command line.
+This folder now contains the constrained sweep used to tune `MAPPO` on the
+default `pettingzoo/orbital` task. The ORBITAL scenario is kept fixed during
+the sweep. Only training hyperparameters are searched, then shortlisted
+configurations are validated across seeds and stress variants before they are
+promoted to `fine_tuned/pettingzoo_orbital/conf/config.yaml`.
 
 ## Prerequisites
 
-- Ensure you have Weights & Biases: `pip install wandb` installed on top of benchmarl requirements.
-
-- Update the `benchmarl/conf/config.yaml` with your desired experiment setup, e.g.:
-
-```yaml
-defaults:
-  - experiment: base_experiment
-  - algorithm: ippo
-  - task: customenv/task_1
-  - model: layers/mlp
-  - model@critic_model: layers/mlp
-  - _self_
-
-seed: 0
-```
-
-## Step 1: Define Your Sweep Configuration
-
-First, create or modify the `sweepconfig.yaml` file. Check the [W&B Sweep Configuration Documentation](https://docs.wandb.ai/guides/sweeps/sweep-config-keys) for detailed configuration options.
-
-
-The YAML file already contains the basic elements required to work with BenchMARL. Change the values according to your desired experiment setup. Note that the parameters in the YAML file should use dots (e.g., `experiment.lr`) rather than standard double nested configurations ([like in this community discussion](https://community.wandb.ai/t/nested-sweep-configuration/3369)) since you are using Hydra.
-
-
-```yaml
-entity: "ENTITY_NAME"
-
-#options: bayes, random, grid
-method: bayes
-
-metric:
-  name: eval/agent/reward/episode_reward_mean
-  goal: maximize
-
-parameters:
-  experiment.lr:
-    max: 0.003
-    min: 0.000025
-    # distribution: uniform
-
-  experiment.max_n_iters:
-    value: 321
-
-```
-
-## Step 2: Initialize sweep
-
-To run the sweep, initialize it using the following command in your terminal:
+- Install BenchMARL and W&B in the training environment.
+- Install ORBITAL from the local clone before launching PettingZoo runs:
 
 ```bash
+pip install -e /home/julien/Documents/ORBITAL
+```
+
+- Keep ORBITAL rendering disabled for HPO with `task.render_mode=null` and
+  `experiment.render=false`.
+- W&B parameters use dotted Hydra override names such as `experiment.lr`.
+
+## Logged ORBITAL diagnostics
+
+The ORBITAL PettingZoo wrapper exposes numeric mission info under keys such as:
+
+- `collection/sat/info/delivered_total`
+- `collection/sat/info/observed_total`
+- `collection/sat/info/knowledge_shared`
+- `collection/sat/info/ground_route`
+- `collection/sat/info/reward_component_delivery`
+- `collection/sat/info/reward_component_task`
+- `collection/sat/info/reward_component_energy`
+- `collection/sat/info/reward_component_debris_risk`
+
+Use them with the BenchMARL timers and counters to reject apparently good runs
+whose mission dynamics are unhealthy:
+
+- `timers/collection_time`
+- `timers/training_time`
+- `timers/iteration_time`
+- `counters/current_frames`
+- `counters/total_frames`
+
+MAPPO already logs PPO diagnostics during training:
+
+- `train/sat/kl_approx`
+- `train/sat/entropy`
+- `train/sat/clip_fraction`
+- `train/sat/explained_variance`
+- `train/sat/grad_norm_loss_objective`
+- `train/sat/grad_norm_loss_critic`
+
+The W&B sweep objective remains the global evaluation metric:
+
+```text
+eval/reward/episode_reward_mean
+```
+
+## Phase A: baseline and CPU collection profile
+
+Start with the balanced CPU-bound profile on the default ORBITAL task:
+
+```bash
+python benchmarl/run.py \
+  algorithm=mappo \
+  task=pettingzoo/orbital \
+  seed=0 \
+  task.render_mode=null \
+  experiment.sampling_device=cpu \
+  experiment.train_device=cuda \
+  experiment.buffer_device=cpu \
+  experiment.parallel_collection=true \
+  experiment.prefer_continuous_actions=false \
+  experiment.on_policy_n_envs_per_worker=18 \
+  experiment.on_policy_collected_frames_per_batch=8192 \
+  experiment.on_policy_minibatch_size=1024 \
+  experiment.on_policy_n_minibatch_iters=20 \
+  experiment.max_n_frames=500000 \
+  experiment.evaluation_interval=40960 \
+  experiment.evaluation_episodes=16 \
+  experiment.evaluation_static=true \
+  experiment.render=false
+```
+
+Compare one short profiling run against the safe collection profile by replacing:
+
+```bash
+experiment.on_policy_n_envs_per_worker=9 \
+experiment.on_policy_collected_frames_per_batch=4096 \
+experiment.on_policy_minibatch_size=512
+```
+
+Keep the balanced profile unless it loses clear stability or wall-clock
+efficiency. It already occupies most of the 20 physical CPU cores, so run one
+balanced W&B agent at a time on the target host.
+
+## Phase B: controlled 1D sensitivity runs
+
+Run seed `0` for `750000` frames per point before relying on the Bayesian sweep.
+Vary only one axis at a time from the baseline profile:
+
+| Axis | Values |
+| --- | --- |
+| `experiment.lr` | `3e-5`, `1e-4`, `3e-4`, `6e-4` |
+| `algorithm.entropy_coef` | `0.0`, `0.002`, `0.01`, `0.03` |
+| `algorithm.clip_epsilon` | `0.1`, `0.2`, `0.3` |
+| `experiment.on_policy_n_minibatch_iters` | `5`, `10`, `20`, `30` |
+| `experiment.gamma` | `0.97`, `0.99`, `0.995` |
+
+Drop unstable regions before widening the final search.
+
+## Phase C: initialize the structured sweep
+
+Review `sweepconfig.yaml`, then initialize the 18-run W&B sweep:
+
+```bash
+cd examples/sweep/wandb
 wandb sweep sweepconfig.yaml
 ```
 
-W&B will automatically create a sweep and return a command for you to run, like:
+W&B prints the agent command for the new sweep:
 
 ```bash
-wandb: Created sweep with ID: xyz123
-wandb: View sweep at: https://wandb.ai/your_entity/your_project/sweeps/xyz123
-wandb: Run sweep agent with: wandb agent your_entity/your_project/xyz123
+wandb agent ENTITY/PROJECT/SWEEP_ID
 ```
 
-## Step 3: Start sweep agents
-Run the command provided in the terminal to start the sweep agent:
+The committed sweep uses:
+
+- Bayesian search with Hyperband early termination.
+- `MAPPO` and `pettingzoo/orbital`.
+- A fixed balanced CPU collection profile.
+- Search over learning rate, entropy, PPO clip, discounting, GAE lambda, and
+  on-policy optimization pressure.
+
+Shortlist the two strongest non-collapsing configurations by the trailing
+evaluation behavior, not by a single reward spike.
+
+## Phase D: validate finalists
+
+Validate each finalist on the default task with seeds `0` through `4`:
 
 ```bash
-wandb agent mc-team/project-name/xyz123
+python fine_tuned/pettingzoo_orbital/pettingzoo_orbital_run.py \
+  seed=SEED \
+  experiment.max_n_frames=3000000 \
+  experiment.evaluation_episodes=32 \
+  experiment.lr=FINALIST_LR \
+  algorithm.entropy_coef=FINALIST_ENTROPY \
+  algorithm.clip_epsilon=FINALIST_CLIP \
+  algorithm.lmbda=FINALIST_LAMBDA
 ```
 
-This will start the agent and begin running experiments according to your sweep configuration.
+Run seeds `0` through `2` again for each stress variant:
+
+```bash
+task.p_link_drop=0.15
+task.adversarial_rate=0.10
+task.energy_budget=32.0
+```
+
+Promote the configuration with the best weighted rank: default ORBITAL counts
+twice and each stress variant counts once. Break ties with default mean return,
+then default variance, then delivery and fleet-health diagnostics.
+
+## Fine-tuned config
+
+`fine_tuned/pettingzoo_orbital/conf/config.yaml` is the promotion target. It
+ships with the balanced host profile and conservative placeholder MAPPO values
+until a validated sweep winner replaces:
+
+- `experiment.lr`
+- `experiment.gamma`
+- `experiment.on_policy_n_minibatch_iters`
+- `algorithm.entropy_coef`
+- `algorithm.clip_epsilon`
+- `algorithm.lmbda`
 
 ## References
 
-https://wandb.ai/adrishd/hydra-example/reports/Configuring-W-B-Projects-with-Hydra--VmlldzoxNTA2MzQw?galleryTag=posts&utm_source=fully_connected&utm_medium=blog&utm_campaign=hydra
-
-https://docs.wandb.ai/guides/sweeps
+- https://docs.wandb.ai/guides/sweeps
+- https://docs.wandb.ai/guides/sweeps/sweep-config-keys

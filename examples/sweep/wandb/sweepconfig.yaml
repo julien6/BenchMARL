@@ -1,48 +1,109 @@
 program: /home/julien/Documents/BenchMARL/benchmarl/run.py
 project: "benchmarl"
 entity: "julien-soule-university-of-luxembourg"
+name: "pettingzoo-orbital-mappo-hpo"
+description: "Constrained MAPPO HPO for the default ORBITAL PettingZoo scenario."
 
-method: bayes 
+method: bayes
+run_cap: 18
 
 metric:
-  name: eval/agents/reward/episode_reward_mean
+  name: eval/reward/episode_reward_mean
   goal: maximize
 
 parameters:
-
-  # experiment hyperparameters 
-
-  experiment.lr:
-    max: 0.003
-    min: 0.000025
-    # distribution: uniform
-
-  experiment.on_policy_n_minibatch_iters:
-    values: [1, 2]
-
-  experiment.on_policy_minibatch_size:
-    values: [64, 128, 256]
-
-  # algorithm hyperparameters 
-  algorithm.entropy_coef:
-      max: 0.05
-      min: 0
-      distribution: uniform
-
   task:
-    value: "vmas/balance"
+    value: "pettingzoo/orbital"
 
   algorithm:
     value: "mappo"
+
+  seed:
+    value: 0
+
+  task.render_mode:
+    value: null
+
+  experiment.sampling_device:
+    value: "cpu"
+
+  experiment.train_device:
+    value: "cuda"
+
+  experiment.buffer_device:
+    value: "cpu"
+
+  experiment.parallel_collection:
+    value: true
+
+  experiment.prefer_continuous_actions:
+    value: false
+
+  experiment.share_policy_params:
+    value: true
+
+  experiment.max_n_frames:
+    value: 1500000
+
+  experiment.evaluation:
+    value: true
+
+  experiment.evaluation_interval:
+    value: 40960
+
+  experiment.evaluation_episodes:
+    value: 16
+
+  experiment.evaluation_static:
+    value: true
+
+  experiment.render:
+    value: false
+
+  experiment.on_policy_n_envs_per_worker:
+    value: 18
+
+  experiment.on_policy_collected_frames_per_batch:
+    value: 8192
+
+  experiment.on_policy_minibatch_size:
+    value: 1024
+
+  experiment.clip_grad_val:
+    value: 5
+
+  algorithm.share_param_critic:
+    value: true
+
+  algorithm.critic_coef:
+    value: 1.0
+
+  experiment.lr:
+    min: 0.00003
+    max: 0.0006
+    distribution: log_uniform_values
+
+  experiment.gamma:
+    values: [0.97, 0.99, 0.995]
+
+  experiment.on_policy_n_minibatch_iters:
+    values: [5, 10, 20]
+
+  algorithm.entropy_coef:
+    min: 0.0
+    max: 0.03
+    distribution: uniform
+
+  algorithm.clip_epsilon:
+    values: [0.1, 0.2, 0.3]
+
+  algorithm.lmbda:
+    values: [0.90, 0.95, 0.98]
         
 early_terminate:
   type: hyperband
-  max_iter: 27
+  min_iter: 10
   s: 3
-  # seed:
-  #   max: 84
-  #   min: 0
-  #   distribution: int_uniform
 
 command:
   - ${env}
