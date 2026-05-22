@@ -1,4 +1,4 @@
-program: /home/julien/Documents/BenchMARL/benchmarl/run.py
+program: ../../../benchmarl/run.py
 project: "benchmarl"
 entity: "julien-soule-university-of-luxembourg"
 name: "pettingzoo-orbital-mappo-hpo"
