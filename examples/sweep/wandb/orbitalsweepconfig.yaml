@@ -67,7 +67,7 @@ parameters:
     value: 5
 
   experiment.max_n_frames:
-    value: 3000000
+    value: 1500000
 
   experiment.on_policy_collected_frames_per_batch:
     value: 8208
@@ -91,7 +91,7 @@ parameters:
     value: 24624
 
   experiment.evaluation_episodes:
-    value: 32
+    value: 16
 
   experiment.evaluation_static:
     value: true
