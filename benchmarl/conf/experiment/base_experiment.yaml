@@ -132,3 +132,6 @@ checkpoint_at_end: False
 keep_checkpoints_num: 3
 # Whether to exclude the replay buffers from the checkpoint
 exclude_buffer_from_checkpoint: False
+
+# Optional MMA organizational model id. Null disables role masks and goal reward shaping.
+organizational_model: null

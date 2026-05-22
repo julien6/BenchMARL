@@ -37,6 +37,11 @@ from benchmarl.algorithms.common import AlgorithmConfig
 from benchmarl.environments import Task, TaskClass
 from benchmarl.experiment.callback import Callback, CallbackNotifier
 from benchmarl.experiment.logger import Logger
+from benchmarl.mma import (
+    MMAGoalRewardTransform,
+    MMARoleMaskTransform,
+    make_organizational_model,
+)
 from benchmarl.models import GnnConfig, SequenceModelConfig
 from benchmarl.models.common import ModelConfig
 from benchmarl.utils import (
@@ -122,6 +127,7 @@ class ExperimentConfig:
     checkpoint_at_end: bool = MISSING
     keep_checkpoints_num: Optional[int] = MISSING
     exclude_buffer_from_checkpoint: bool = MISSING
+    organizational_model: Optional[str] = MISSING
 
     def train_batch_size(self, on_policy: bool) -> int:
         """
@@ -458,7 +464,36 @@ class Experiment(CallbackNotifier):
             device=self.config.sampling_device,
         )
 
+        task_group_map = self.task.group_map(test_env)
+        self.organizational_model = None
         transforms_env = self.task.get_env_transforms(test_env)
+        organizational_model_id = getattr(self.config, "organizational_model", None)
+        if organizational_model_id is not None:
+            self.organizational_model = make_organizational_model(
+                organizational_model_id,
+                task=self.task,
+                group_map=task_group_map,
+            )
+            print(
+                f"\n{self.organizational_model.ascii_summary(organizational_model_id)}\n",
+                flush=True,
+            )
+            if self.organizational_model.role_assignments:
+                transforms_env.append(
+                    MMARoleMaskTransform(
+                        model=self.organizational_model,
+                        group_map=task_group_map,
+                        action_spec=self.task.action_spec(test_env),
+                    )
+                )
+            if self.organizational_model.goal_assignments:
+                transforms_env.append(
+                    MMAGoalRewardTransform(
+                        model=self.organizational_model,
+                        group_map=task_group_map,
+                        reward_spec=test_env.full_reward_spec,
+                    )
+                )
         transforms_training = transforms_env + [
             self.task.get_reward_sum_transform(test_env)
         ]

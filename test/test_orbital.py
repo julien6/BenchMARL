@@ -6,7 +6,7 @@
 
 import pytest
 
-from benchmarl.algorithms import IppoConfig, QmixConfig
+from benchmarl.algorithms import IppoConfig, MappoConfig, QmixConfig
 from benchmarl.environments import PettingZooTask, Task
 from benchmarl.experiment import Experiment
 
@@ -32,4 +32,30 @@ class TestOrbital:
             config=experiment_config,
             task=task.get_from_yaml(),
         )
+        experiment.run()
+
+    def test_mma_ppo_smoke(
+        self,
+        experiment_config,
+        mlp_sequence_config,
+    ):
+        experiment_config.render = False
+        experiment_config.organizational_model = "orbital_all"
+        experiment = Experiment(
+            algorithm_config=MappoConfig.get_from_yaml(),
+            model_config=mlp_sequence_config,
+            seed=0,
+            config=experiment_config,
+            task=PettingZooTask.ORBITAL.get_from_yaml(),
+        )
+
+        assert experiment.action_mask_spec is not None
+        assert ("sat", "action_mask") in experiment.action_mask_spec.keys(True, True)
+
+        policy_td = experiment.policy(experiment.test_env.reset())
+        chosen_action_is_allowed = policy_td["sat", "action_mask"].gather(
+            -1, policy_td["sat", "action"].unsqueeze(-1)
+        )
+        assert chosen_action_is_allowed.all()
+
         experiment.run()

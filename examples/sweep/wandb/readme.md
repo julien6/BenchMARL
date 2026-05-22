@@ -151,6 +151,11 @@ The committed sweep uses:
 - Search over learning rate, entropy, PPO clip, discounting, GAE lambda, and
   on-policy optimization pressure.
 
+The sweep sets `experiment.organizational_model=orbital_none` explicitly. Keep
+the model id fixed within a HPO sweep. For article-oriented MAPPO comparisons,
+create sibling sweeps with `orbital_lb_reward_only`, `orbital_lb_action_only`,
+and `orbital_mma_full`; each changes only the fixed organizational-model id.
+
 Shortlist the two strongest non-collapsing configurations by the trailing
 evaluation behavior, not by a single reward spike.
 
