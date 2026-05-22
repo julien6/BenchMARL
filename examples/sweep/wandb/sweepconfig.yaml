@@ -42,7 +42,7 @@ parameters:
   experiment.share_policy_params:
     value: true
 
-  experiment.organizational_model:
+  "++experiment.organizational_model":
     value: "orbital_none"
 
   experiment.loggers:

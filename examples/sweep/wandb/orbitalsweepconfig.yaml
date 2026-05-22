@@ -115,4 +115,4 @@ command:
   - ${env}
   - python
   - ${program}
-  - ${args_no_hyphens}
+  - ${args_override_hydra}

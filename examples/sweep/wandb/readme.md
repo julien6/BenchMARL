@@ -24,6 +24,11 @@ pip install -e '/home/julien/Documents/ORBITAL[render]'
   `experiment.render=true`. The fine-tuned config and committed sweep enable
   those switches so evaluation videos are sent to W&B.
 - W&B parameters use dotted Hydra override names such as `experiment.lr`.
+- The fixed baseline grid uses W&B's `${args_override_hydra}` macro so its
+  generated Hydra overrides use `++` and work whether a parameter is already
+  present in the structured config or appended by a newer checkout. The HPO
+  sweep keeps normal config-group overrides and prefixes only its
+  `organizational_model` parameter with `++`.
 
 ## Logged ORBITAL diagnostics
 
