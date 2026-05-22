@@ -152,9 +152,12 @@ The committed sweep uses:
   on-policy optimization pressure.
 
 The sweep sets `experiment.organizational_model=orbital_none` explicitly. Keep
-the model id fixed within a HPO sweep. For article-oriented MAPPO comparisons,
-create sibling sweeps with `orbital_lb_reward_only`, `orbital_lb_action_only`,
-and `orbital_mma_full`; each changes only the fixed organizational-model id.
+the model id fixed within a HPO sweep. For the fixed-config article baseline
+comparison after choosing a final ORBITAL configuration, use the separate
+`orbitalsweepconfig.yaml` grid. It changes only the organizational model among
+`orbital_none`, `orbital_lb_reward_only`, `orbital_lb_action_only`, and
+`orbital_mma_full`, plus the role-only handcrafted baselines `orbital_rb_rule`,
+`orbital_rb_relay_heavy`, and `orbital_pb_dcop_lite`.
 
 Shortlist the two strongest non-collapsing configurations by the trailing
 evaluation behavior, not by a single reward spike.

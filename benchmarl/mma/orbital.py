@@ -24,6 +24,8 @@ SCAN = 6
 IDLE = 7
 
 ENERGY = 0
+THETA = 2
+RADIUS = 3
 SUNLIGHT = 5
 GROUND_CONTACT = 6
 GROUND_ROUTE = 7
@@ -31,14 +33,17 @@ LOCAL_DEGREE = 8
 BUFFERED_DATA = 9
 BUFFER_REMAINING = 10
 KNOWN_NEARBY_TASKS = 11
+KNOWN_NEARBY_TASK_PRIORITY = 12
 LOCAL_PC = 14
 COMPROMISED = 15
 
 LOW_ENERGY = 0.25
+CRITICAL_ENERGY = 0.15
 LOW_SAFETY_ENERGY = 0.20
 USEFUL_BUFFER_SPACE = 0.30
 BUFFERED_MISSION_DATA = 0.05
 DEBRIS_ALERT = 0.35
+HIGH_LOCAL_TASK_PRIORITY = 0.075
 
 
 def _check_orbital(task: TaskClass) -> None:
@@ -90,6 +95,122 @@ def _safety_actions(observation: Tensor, agent_name: str) -> set[int]:
     allowed = _safe_fallback(observation)
     allowed.update((PWR, SCAN))
     return allowed
+
+
+def _has_buffered_data(observation: Tensor) -> bool:
+    return bool(observation[BUFFERED_DATA] > BUFFERED_MISSION_DATA)
+
+
+def _can_observe_local_task(observation: Tensor) -> bool:
+    return bool(
+        observation[KNOWN_NEARBY_TASKS] > 0.0
+        and observation[BUFFER_REMAINING] > USEFUL_BUFFER_SPACE
+    )
+
+
+def _has_relay_neighbor(observation: Tensor) -> bool:
+    return bool(observation[GROUND_ROUTE] > 0.0 or observation[LOCAL_DEGREE] > 0.0)
+
+
+def _can_direct_relay(observation: Tensor) -> bool:
+    return bool(observation[GROUND_CONTACT] > 0.5)
+
+
+def _local_high_priority_task(observation: Tensor) -> bool:
+    return bool(
+        _can_observe_local_task(observation)
+        and observation[KNOWN_NEARBY_TASK_PRIORITY] >= HIGH_LOCAL_TASK_PRIORITY
+    )
+
+
+def _lowpower_if_recharging(observation: Tensor, threshold: float) -> int | None:
+    if observation[ENERGY] < threshold and observation[SUNLIGHT] > 0.5:
+        return PWR
+    return None
+
+
+def _deterministic_safety_action(observation: Tensor) -> int | None:
+    lowpower_action = _lowpower_if_recharging(observation, LOW_SAFETY_ENERGY)
+    if lowpower_action is not None:
+        return lowpower_action
+    if observation[COMPROMISED] > 0.5:
+        return SCAN
+    if observation[LOCAL_PC] > DEBRIS_ALERT:
+        return UP if observation[RADIUS] < 0.5 else DN
+    return None
+
+
+def _rb_rule_policy(observation: Tensor, agent_name: str) -> tuple[int]:
+    """Greedy local acquisition, then data relay, then simple energy fallback."""
+    if _local_high_priority_task(observation):
+        return (OBS,)
+    if _has_buffered_data(observation):
+        if _can_direct_relay(observation):
+            return (REL_GRN,)
+        if _has_relay_neighbor(observation):
+            return (REL_SAT,)
+    if _can_observe_local_task(observation):
+        return (OBS,)
+    lowpower_action = _lowpower_if_recharging(observation, LOW_ENERGY)
+    return (IDLE if lowpower_action is None else lowpower_action,)
+
+
+def _rb_relay_heavy_policy(observation: Tensor, agent_name: str) -> tuple[int]:
+    """Delivery-first rule with weak safety handling."""
+    if _can_direct_relay(observation):
+        return (REL_GRN,)
+    if _has_relay_neighbor(observation) and (
+        _has_buffered_data(observation) or observation[KNOWN_NEARBY_TASKS] > 0.0
+    ):
+        return (REL_SAT,)
+    if _can_observe_local_task(observation):
+        return (OBS,)
+    lowpower_action = _lowpower_if_recharging(observation, CRITICAL_ENERGY)
+    return (IDLE if lowpower_action is None else lowpower_action,)
+
+
+def _agent_index(agent_name: str) -> int:
+    try:
+        return int(agent_name.rsplit("_", 1)[1])
+    except (IndexError, ValueError):
+        return 0
+
+
+def _dcop_lite_prefers_relay(observation: Tensor, agent_name: str) -> bool:
+    # ORBITAL does not expose a scheduler clock to roles. Orbit phase is a
+    # periodic local proxy for rotating observer/relay allocations.
+    phase_bucket = min(3, max(0, int(float(observation[THETA]) * 4.0)))
+    return (_agent_index(agent_name) + phase_bucket) % 3 == 0
+
+
+def _pb_dcop_lite_policy(observation: Tensor, agent_name: str) -> tuple[int]:
+    """Phase-scheduled observer/relay heuristic constrained by local state."""
+    safety_action = _deterministic_safety_action(observation)
+    if safety_action is not None:
+        return (safety_action,)
+
+    relay_ready = _has_buffered_data(observation)
+    relay_preferred = _dcop_lite_prefers_relay(observation, agent_name)
+    if relay_preferred:
+        if _can_direct_relay(observation):
+            return (REL_GRN,)
+        if relay_ready and _has_relay_neighbor(observation):
+            return (REL_SAT,)
+        if _can_observe_local_task(observation):
+            return (OBS,)
+    else:
+        if _can_observe_local_task(observation):
+            return (OBS,)
+        if relay_ready and _can_direct_relay(observation):
+            return (REL_GRN,)
+        if relay_ready and _has_relay_neighbor(observation):
+            return (REL_SAT,)
+
+    if _can_direct_relay(observation):
+        return (REL_GRN,)
+    if observation[KNOWN_NEARBY_TASKS] > 0.0 and observation[LOCAL_DEGREE] > 0.0:
+        return (REL_SAT,)
+    return (IDLE,)
 
 
 def _ground_intake_goal(
@@ -351,6 +472,60 @@ def orbital_mma_full(
             agent_name: _article_role_goals(role_name)
             for agent_name, role_name in role_assignments.items()
         },
+    )
+
+
+def _handcrafted_role_model(
+    task: TaskClass,
+    group_map: Mapping[str, Sequence[str]],
+    role_name: str,
+    rule,
+    description: str,
+) -> OrganizationalModel:
+    _check_orbital(task)
+    agents = _orbital_agents(group_map)
+    return OrganizationalModel(
+        roles={role_name: ScriptedRole(rule, description)},
+        role_assignments={agent_name: role_name for agent_name in agents},
+    )
+
+
+def orbital_rb_rule(
+    task: TaskClass, group_map: Mapping[str, Sequence[str]]
+) -> OrganizationalModel:
+    """Rule baseline with priority-first local acquisition and relay fallback."""
+    return _handcrafted_role_model(
+        task,
+        group_map,
+        "orbital_rb_rule_role",
+        _rb_rule_policy,
+        "Chooses one priority-first handcrafted action from local ORBITAL state.",
+    )
+
+
+def orbital_rb_relay_heavy(
+    task: TaskClass, group_map: Mapping[str, Sequence[str]]
+) -> OrganizationalModel:
+    """Rule baseline that prioritizes relay continuity over acquisition."""
+    return _handcrafted_role_model(
+        task,
+        group_map,
+        "orbital_rb_relay_heavy_role",
+        _rb_relay_heavy_policy,
+        "Chooses one delivery-first handcrafted action from local ORBITAL state.",
+    )
+
+
+def orbital_pb_dcop_lite(
+    task: TaskClass, group_map: Mapping[str, Sequence[str]]
+) -> OrganizationalModel:
+    """Planning-inspired baseline with scheduled local observer/relay choices."""
+    return _handcrafted_role_model(
+        task,
+        group_map,
+        "orbital_pb_dcop_lite_role",
+        _pb_dcop_lite_policy,
+        "Chooses one phase-scheduled observer or relay action with local constraints.",
     )
 
 

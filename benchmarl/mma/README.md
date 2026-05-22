@@ -39,6 +39,16 @@ Article-oriented MAPPO baselines use these ids:
 | `orbital_lb_action_only` | yes | no | role action masks without mission shaping |
 | `orbital_mma_full` | yes | yes | role action masks and mission goal shaping |
 
+Handcrafted ORBITAL baselines also use role ids so they can reuse the action
+mask path, but each role returns one handcrafted action at a time rather than a
+learnable action subset:
+
+| Id | Heuristic |
+| --- | --- |
+| `orbital_rb_rule` | priority-first local observation, then relay, then energy fallback |
+| `orbital_rb_relay_heavy` | ground or satellite relay before observation, with weak energy fallback |
+| `orbital_pb_dcop_lite` | phase-scheduled observer/relay choices constrained by local energy, connectivity, buffer, and safety state |
+
 The article-oriented ids use the ORBITAL roles `orbital_observer_role`,
 `orbital_relay_role`, and `orbital_safety_guard_role`, with the mission goals
 `orbital_task_acquisition_goal`, `orbital_data_delivery_goal`, and

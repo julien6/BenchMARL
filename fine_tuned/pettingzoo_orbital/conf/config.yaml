@@ -24,8 +24,8 @@ experiment:
   prefer_continuous_actions: False
   parallel_collection: True
 
-  gamma: 0.99
-  lr: 0.0001
+  gamma: 0.995
+  lr: 0.00013563955027535036
   clip_grad_norm: True
   clip_grad_val: 5
 
@@ -34,7 +34,7 @@ experiment:
 
   on_policy_collected_frames_per_batch: 8208
   on_policy_n_envs_per_worker: 18
-  on_policy_n_minibatch_iters: 20
+  on_policy_n_minibatch_iters: 10
   on_policy_minibatch_size: 1024
 
   evaluation: True
@@ -52,6 +52,6 @@ experiment:
   checkpoint_at_end: True
 
 algorithm:
-  entropy_coef: 0.01
-  clip_epsilon: 0.2
-  lmbda: 0.95
+  entropy_coef: 0.027471226578243583
+  clip_epsilon: 0.3
+  lmbda: 0.9

@@ -176,6 +176,9 @@ def test_goal_context_is_stateful_until_reset():
         "orbital_lb_reward_only",
         "orbital_lb_action_only",
         "orbital_mma_full",
+        "orbital_rb_rule",
+        "orbital_rb_relay_heavy",
+        "orbital_pb_dcop_lite",
     ],
 )
 def test_orbital_organizational_models_build_from_registry(model_id):
@@ -222,6 +225,68 @@ def test_article_orbital_baselines_split_roles_and_goals():
     assert full.goal_assignments["sat_0"] == ["orbital_task_acquisition_goal"]
     assert full.goal_assignments["sat_1"] == ["orbital_data_delivery_goal"]
     assert full.goal_assignments["sat_2"] == ["orbital_fleet_resilience_goal"]
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    ["orbital_rb_rule", "orbital_rb_relay_heavy", "orbital_pb_dcop_lite"],
+)
+def test_handcrafted_orbital_baselines_are_role_only_single_action_policies(model_id):
+    group_map = {"sat": [f"sat_{index}" for index in range(6)]}
+    model = make_organizational_model(
+        model_id, task=PettingZooTask.ORBITAL.get_from_yaml(), group_map=group_map
+    )
+    observations = [
+        torch.zeros(20),
+        torch.tensor([0.1, 1, 0.5, 0.4, 0, 1, 1, 1, 0.5, 0.7, 0.3, 0.2, 0.1] + [0] * 7),
+    ]
+
+    assert model.roles
+    assert model.role_assignments == {
+        agent_name: next(iter(model.roles)) for agent_name in group_map["sat"]
+    }
+    assert not model.goals
+    assert not model.goal_assignments
+    for agent_name in group_map["sat"]:
+        for observation in observations:
+            assert (
+                len(
+                    tuple(
+                        model.role_for(agent_name).allowed_actions(
+                            observation, agent_name
+                        )
+                    )
+                )
+                == 1
+            )
+
+
+def test_handcrafted_orbital_policy_priorities():
+    group_map = {"sat": ["sat_0"]}
+    task = PettingZooTask.ORBITAL.get_from_yaml()
+    mission_observation = torch.zeros(20)
+    mission_observation[6] = 1.0  # ground contact
+    mission_observation[9] = 0.7  # buffered data
+    mission_observation[10] = 0.7  # buffer remaining
+    mission_observation[11] = 0.2  # local known tasks
+    mission_observation[12] = 0.1  # local known task priority
+
+    rule = make_organizational_model("orbital_rb_rule", task, group_map)
+    relay_heavy = make_organizational_model("orbital_rb_relay_heavy", task, group_map)
+    assert tuple(
+        rule.role_for("sat_0").allowed_actions(mission_observation, "sat_0")
+    ) == (0,)
+    assert tuple(
+        relay_heavy.role_for("sat_0").allowed_actions(mission_observation, "sat_0")
+    ) == (1,)
+
+    recharge_observation = torch.zeros(20)
+    recharge_observation[0] = 0.1  # energy
+    recharge_observation[5] = 1.0  # sunlight
+    dcop_lite = make_organizational_model("orbital_pb_dcop_lite", task, group_map)
+    assert tuple(
+        dcop_lite.role_for("sat_0").allowed_actions(recharge_observation, "sat_0")
+    ) == (5,)
 
 
 def test_unknown_organizational_model_id_is_explicit():

@@ -22,6 +22,9 @@ from .orbital import (
     orbital_mma_full,
     orbital_none,
     orbital_partial,
+    orbital_pb_dcop_lite,
+    orbital_rb_relay_heavy,
+    orbital_rb_rule,
 )
 from .transforms import MMAGoalRewardTransform, MMARoleMaskTransform
 
@@ -31,3 +34,6 @@ register_organizational_model("orbital_all", orbital_all)
 register_organizational_model("orbital_lb_reward_only", orbital_lb_reward_only)
 register_organizational_model("orbital_lb_action_only", orbital_lb_action_only)
 register_organizational_model("orbital_mma_full", orbital_mma_full)
+register_organizational_model("orbital_rb_rule", orbital_rb_rule)
+register_organizational_model("orbital_rb_relay_heavy", orbital_rb_relay_heavy)
+register_organizational_model("orbital_pb_dcop_lite", orbital_pb_dcop_lite)

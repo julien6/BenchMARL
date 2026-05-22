@@ -1,0 +1,118 @@
+# Fixed-config ORBITAL MAPPO comparison for learning and handcrafted baselines.
+# The hyperparameters mirror the current provisional fine-tuned ORBITAL config.
+program: ../../../fine_tuned/pettingzoo_orbital/pettingzoo_orbital_run.py
+project: "benchmarl"
+entity: "julien-soule-university-of-luxembourg"
+name: "pettingzoo-orbital-mappo-baselines"
+description: "Fixed provisional ORBITAL MAPPO config across learning and handcrafted baseline organizational models."
+
+method: grid
+run_cap: 7
+
+metric:
+  name: eval/reward/episode_reward_mean
+  goal: maximize
+
+parameters:
+  seed:
+    value: 0
+
+  task.render_mode:
+    value: "rgb_array"
+
+  experiment.sampling_device:
+    value: "cpu"
+
+  experiment.train_device:
+    value: "cuda"
+
+  experiment.buffer_device:
+    value: "cpu"
+
+  experiment.share_policy_params:
+    value: true
+
+  experiment.prefer_continuous_actions:
+    value: false
+
+  experiment.parallel_collection:
+    value: true
+
+  experiment.organizational_model:
+    values:
+      - "orbital_none"
+      - "orbital_lb_reward_only"
+      - "orbital_lb_action_only"
+      - "orbital_mma_full"
+      - "orbital_rb_rule"
+      - "orbital_rb_relay_heavy"
+      - "orbital_pb_dcop_lite"
+
+  experiment.loggers:
+    value: "[wandb]"
+
+  experiment.create_json:
+    value: true
+
+  experiment.gamma:
+    value: 0.995
+
+  experiment.lr:
+    value: 0.00013563955027535036
+
+  experiment.clip_grad_norm:
+    value: true
+
+  experiment.clip_grad_val:
+    value: 5
+
+  experiment.max_n_frames:
+    value: 3000000
+
+  experiment.on_policy_collected_frames_per_batch:
+    value: 8208
+
+  experiment.on_policy_n_envs_per_worker:
+    value: 18
+
+  experiment.on_policy_n_minibatch_iters:
+    value: 10
+
+  experiment.on_policy_minibatch_size:
+    value: 1024
+
+  experiment.evaluation:
+    value: true
+
+  experiment.render:
+    value: true
+
+  experiment.evaluation_interval:
+    value: 41040
+
+  experiment.evaluation_episodes:
+    value: 32
+
+  experiment.evaluation_static:
+    value: true
+
+  experiment.checkpoint_interval:
+    value: 0
+
+  experiment.checkpoint_at_end:
+    value: true
+
+  algorithm.entropy_coef:
+    value: 0.027471226578243583
+
+  algorithm.clip_epsilon:
+    value: 0.3
+
+  algorithm.lmbda:
+    value: 0.9
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}
