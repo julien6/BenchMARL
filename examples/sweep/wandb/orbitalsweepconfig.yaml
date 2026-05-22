@@ -67,7 +67,7 @@ parameters:
     value: 5
 
   experiment.max_n_frames:
-    value: 500000
+    value: 3000000
 
   experiment.on_policy_collected_frames_per_batch:
     value: 8208
@@ -88,10 +88,10 @@ parameters:
     value: true
 
   experiment.evaluation_interval:
-    value: 82080
+    value: 41040
 
   experiment.evaluation_episodes:
-    value: 8
+    value: 32
 
   experiment.evaluation_static:
     value: true
@@ -100,7 +100,7 @@ parameters:
     value: 0
 
   experiment.checkpoint_at_end:
-    value: false
+    value: true
 
   algorithm.entropy_coef:
     value: 0.027471226578243583
