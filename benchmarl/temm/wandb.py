@@ -84,20 +84,21 @@ def publish_temm_to_wandb(
                 wandb, diagnostics
             ),
             f"{WANDB_SECTION}/TEMM_summary": wandb.Html(
-                _pre_html(summary_path.read_text())
+                _pre_html(summary_path.read_text()),
+                data_is_not_path=True,
             ),
             f"{WANDB_SECTION}/TEMM_json": wandb.Html(
-                _pre_html(json.dumps(result.to_dict(), indent=2))
+                _pre_html(json.dumps(result.to_dict(), indent=2)),
+                data_is_not_path=True,
             ),
-            f"{WANDB_SECTION}/organizational_fit": result.fit.organizational,
-            f"{WANDB_SECTION}/structural_fit": result.fit.structural,
-            f"{WANDB_SECTION}/functional_fit": result.fit.functional,
         }
         if figures:
             for name, figure in figures.items():
                 explanation = (explanations or {}).get(name, "")
-                log_payload[f"{WANDB_SECTION}/{name}"] = wandb.Html(
-                    figure_panel_html(figure, explanation)
+                explained_name = _explained_panel_name(name)
+                log_payload[f"{WANDB_SECTION}/{explained_name}"] = wandb.Html(
+                    figure_panel_html(figure, explanation),
+                    data_is_not_path=True,
                 )
         active_run.log(log_payload)
 
@@ -179,6 +180,12 @@ def _read_json(path: Path) -> dict:
         return json.loads(path.read_text())
     except (json.JSONDecodeError, OSError):
         return {}
+
+
+def _explained_panel_name(figure_name: str) -> str:
+    if figure_name.startswith("figure_"):
+        return "00_explained_" + figure_name[len("figure_") :]
+    return f"00_explained_{figure_name}"
 
 
 def _fit_table(wandb, result: TEMMResult):

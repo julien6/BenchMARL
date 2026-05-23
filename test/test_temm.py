@@ -391,8 +391,9 @@ def test_wandb_payload_includes_plotly_figures(monkeypatch, tmp_path):
                 self.data = data
 
         class Html:
-            def __init__(self, html):
+            def __init__(self, html, data_is_not_path=False):
                 self.html = html
+                self.data_is_not_path = data_is_not_path
 
         class Plotly:
             def __init__(self, figure):
@@ -413,12 +414,15 @@ def test_wandb_payload_includes_plotly_figures(monkeypatch, tmp_path):
         explanations=explanations,
         figure_paths=figure_paths,
     )
-    assert "TEMM & MOISE+MARL/figure_fit_summary" in logged
-    assert "TEMM & MOISE+MARL/figure_mission_graph" in logged
-    assert "TEMM & MOISE+MARL/figure_role_prototype_timelines" in logged
-    assert "TEMM & MOISE+MARL/figure_role_hierarchy_tree" in logged
-    assert "<details>" in logged["TEMM & MOISE+MARL/figure_fit_summary"].html
-    assert "Explanation" in logged["TEMM & MOISE+MARL/figure_fit_summary"].html
+    fit_key = "TEMM & MOISE+MARL/00_explained_fit_summary"
+    assert fit_key in logged
+    assert "TEMM & MOISE+MARL/00_explained_mission_graph" in logged
+    assert "TEMM & MOISE+MARL/00_explained_role_prototype_timelines" in logged
+    assert "TEMM & MOISE+MARL/00_explained_role_hierarchy_tree" in logged
+    assert "TEMM & MOISE+MARL/structural_fit" not in logged
+    assert "<details>" in logged[fit_key].html
+    assert "Explanation" in logged[fit_key].html
+    assert logged[fit_key].data_is_not_path
     assert artifacts
     assert any(name and name.startswith("figures/") for _, name in artifacts[0].files)
 
