@@ -153,6 +153,7 @@ def test_temm_cli_smoke_writes_result_and_summary(monkeypatch, tmp_path):
         "collect_evaluation_rollouts",
         lambda experiment, config: [_rollout(True), _rollout(True)],
     )
+    monkeypatch.setattr(cli, "close_experiment_for_temm", lambda experiment: None)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -194,7 +195,7 @@ def test_temm_reload_falls_back_to_config_pickle(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cli.Experiment,
         "reload_from_file",
-        staticmethod(lambda checkpoint: FakeExperiment()),
+        staticmethod(lambda checkpoint, experiment_patch=None: FakeExperiment()),
     )
 
     assert isinstance(cli.reload_experiment_for_temm(str(checkpoint)), FakeExperiment)

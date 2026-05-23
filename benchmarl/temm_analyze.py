@@ -29,7 +29,20 @@ def reload_experiment_for_temm(checkpoint: str):
         config_file = Path(checkpoint).parent.parent / "config.pkl"
         if not config_file.exists():
             raise
-        return Experiment.reload_from_file(checkpoint)
+        return Experiment.reload_from_file(
+            checkpoint,
+            experiment_patch={
+                "loggers": [],
+                "create_json": False,
+                "render": False,
+            },
+        )
+
+
+def close_experiment_for_temm(experiment) -> None:
+    close = getattr(experiment, "close", None)
+    if close is not None:
+        close()
 
 
 def collect_evaluation_rollouts(experiment, config: TEMMConfig) -> List[TensorDictBase]:
@@ -124,16 +137,21 @@ def main() -> None:
     )
 
     experiment = reload_experiment_for_temm(str(Path(args.checkpoint).resolve()))
-    rollouts = collect_evaluation_rollouts(experiment, config)
-    result = analyze_rollouts(rollouts, experiment.group_map, config)
+    try:
+        print(f"Collecting {config.episodes} TEMM evaluation episodes...", flush=True)
+        rollouts = collect_evaluation_rollouts(experiment, config)
+        print("Analyzing TEMM trajectories...", flush=True)
+        result = analyze_rollouts(rollouts, experiment.group_map, config)
 
-    output_path = Path(config.output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    result.to_json(output_path)
-    summary_path = output_path.with_name("temm_summary.txt")
-    write_summary(result, summary_path)
-    print(f"TEMM results written to {output_path}")
-    print(f"TEMM summary written to {summary_path}")
+        output_path = Path(config.output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        result.to_json(output_path)
+        summary_path = output_path.with_name("temm_summary.txt")
+        write_summary(result, summary_path)
+        print(f"TEMM results written to {output_path}", flush=True)
+        print(f"TEMM summary written to {summary_path}", flush=True)
+    finally:
+        close_experiment_for_temm(experiment)
 
 
 if __name__ == "__main__":
