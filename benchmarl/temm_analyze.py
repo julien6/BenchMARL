@@ -14,9 +14,22 @@ import torch
 from tensordict import TensorDictBase
 from torchrl.envs.utils import ExplorationType, set_exploration_type
 
+from benchmarl.experiment import Experiment
 from benchmarl.hydra_config import reload_experiment_from_file
 from benchmarl.temm import TEMMConfig, analyze_rollouts
 from benchmarl.utils import seed_everything
+
+
+def reload_experiment_for_temm(checkpoint: str):
+    """Reload a checkpoint, falling back to config.pkl if Hydra metadata is stale."""
+
+    try:
+        return reload_experiment_from_file(checkpoint)
+    except Exception:
+        config_file = Path(checkpoint).parent.parent / "config.pkl"
+        if not config_file.exists():
+            raise
+        return Experiment.reload_from_file(checkpoint)
 
 
 def collect_evaluation_rollouts(experiment, config: TEMMConfig) -> List[TensorDictBase]:
@@ -110,7 +123,7 @@ def main() -> None:
         seed=args.seed,
     )
 
-    experiment = reload_experiment_from_file(str(Path(args.checkpoint).resolve()))
+    experiment = reload_experiment_for_temm(str(Path(args.checkpoint).resolve()))
     rollouts = collect_evaluation_rollouts(experiment, config)
     result = analyze_rollouts(rollouts, experiment.group_map, config)
 

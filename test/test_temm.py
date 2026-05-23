@@ -146,7 +146,7 @@ def test_temm_cli_smoke_writes_result_and_summary(monkeypatch, tmp_path):
     import benchmarl.temm_analyze as cli
 
     monkeypatch.setattr(
-        cli, "reload_experiment_from_file", lambda checkpoint: FakeExperiment()
+        cli, "reload_experiment_for_temm", lambda checkpoint: FakeExperiment()
     )
     monkeypatch.setattr(
         cli,
@@ -173,3 +173,28 @@ def test_temm_cli_smoke_writes_result_and_summary(monkeypatch, tmp_path):
     data = json.loads(out.read_text())
     assert "fit" in data
     assert data["metadata"]["episodes"] == 2
+
+
+def test_temm_reload_falls_back_to_config_pickle(monkeypatch, tmp_path):
+    checkpoint = tmp_path / "run" / "checkpoints" / "checkpoint_10.pt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_text("")
+    (tmp_path / "run" / "config.pkl").write_text("")
+
+    class FakeExperiment:
+        pass
+
+    import benchmarl.temm_analyze as cli
+
+    monkeypatch.setattr(
+        cli,
+        "reload_experiment_from_file",
+        lambda checkpoint: (_ for _ in ()).throw(RuntimeError("bad hydra")),
+    )
+    monkeypatch.setattr(
+        cli.Experiment,
+        "reload_from_file",
+        staticmethod(lambda checkpoint: FakeExperiment()),
+    )
+
+    assert isinstance(cli.reload_experiment_for_temm(str(checkpoint)), FakeExperiment)
