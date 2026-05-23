@@ -251,6 +251,12 @@ def test_temm_diagnostics_and_visualizations_export_html(tmp_path):
     assert len(diagnostics.role_embeddings) == len(diagnostics.role_labels)
     assert diagnostics.role_action_histograms
     assert len(diagnostics.goal_embeddings) == len(diagnostics.goal_labels)
+    assert diagnostics.trajectory_timelines
+    assert diagnostics.role_prototypes
+    assert diagnostics.goal_prototypes
+    assert diagnostics.role_distance_matrix
+    assert diagnostics.goal_distance_matrix
+    assert diagnostics.role_members
 
     visualizer = TEMMVisualizer(result, diagnostics)
     figures = visualizer.build_figures()
@@ -261,6 +267,14 @@ def test_temm_diagnostics_and_visualizations_export_html(tmp_path):
         "figure_role_behavior_heatmap",
         "figure_role_mission_matrix",
         "figure_mission_graph",
+        "figure_role_prototype_timelines",
+        "figure_goal_prototype_timelines",
+        "figure_symbolic_rule_table",
+        "figure_agent_role_episode_map",
+        "figure_role_hierarchy_tree",
+        "figure_goal_mission_hierarchy_tree",
+        "figure_role_distance_heatmap",
+        "figure_goal_distance_heatmap",
     } <= set(figures)
     for figure in figures.values():
         assert figure.data
@@ -336,5 +350,25 @@ def test_wandb_payload_includes_plotly_figures(monkeypatch, tmp_path):
     )
     assert "TEMM & MOISE+MARL/figure_fit_summary" in logged
     assert "TEMM & MOISE+MARL/figure_mission_graph" in logged
+    assert "TEMM & MOISE+MARL/figure_role_prototype_timelines" in logged
+    assert "TEMM & MOISE+MARL/figure_role_hierarchy_tree" in logged
     assert artifacts
     assert any(name and name.startswith("figures/") for _, name in artifacts[0].files)
+
+
+def test_temm_visualizations_handle_empty_result(tmp_path):
+    from benchmarl.temm import TEMMDiagnostics
+    from benchmarl.temm.types import FitScores
+
+    result = TEMMResult(
+        fit=FitScores(structural=0.0, functional=0.0, organizational=0.0),
+        mean_return=0.0,
+        reward_std=0.0,
+    )
+    visualizer = TEMMVisualizer(result, TEMMDiagnostics())
+    figures = visualizer.build_figures()
+
+    assert figures
+    assert all(figure.data for figure in figures.values())
+    paths = visualizer.write_html(tmp_path / "empty_figures")
+    assert paths

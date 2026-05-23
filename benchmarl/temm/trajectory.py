@@ -171,6 +171,30 @@ def transition_pattern(
     return items
 
 
+def symbolic_timeline(trajectory: AgentTrajectory) -> List[Dict[str, object]]:
+    observations = trajectory.observations.float().reshape(
+        trajectory.observations.shape[0], -1
+    )
+    next_observations = trajectory.next_observations.float().reshape(
+        trajectory.next_observations.shape[0], -1
+    )
+    actions = trajectory.actions.reshape(trajectory.actions.shape[0], -1)
+    rewards = trajectory.rewards.reshape(trajectory.rewards.shape[0], -1)
+    items = []
+    for time_index in range(len(observations)):
+        delta = next_observations[time_index] - observations[time_index]
+        items.append(
+            {
+                "t": time_index,
+                "observation": _bucket(float(observations[time_index].mean().item())),
+                "action": _action_label(actions[time_index]),
+                "delta": _bucket(float(delta.mean().item())),
+                "reward": float(rewards[time_index].mean().item()),
+            }
+        )
+    return items
+
+
 def representative_plan_for(
     dataset: TEMMTrajectoryDataset,
     episode_index: int,

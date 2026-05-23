@@ -19,6 +19,7 @@ from .trajectory import (
     TEMMTrajectoryDataset,
     extract_trajectories,
     representative_plan_for,
+    symbolic_timeline,
     trajectory_action_histogram,
     trajectory_embedding,
     transition_pattern,
@@ -347,6 +348,9 @@ def _build_diagnostics(
     config: TEMMConfig,
 ) -> TEMMDiagnostics:
     role_index_to_id = {int(role.id.rsplit("_", 1)[1]): role.id for role in roles}
+    trajectory_timelines = {
+        traj.id: symbolic_timeline(traj) for traj in dataset.agent_trajectories
+    }
     role_embeddings = [
         trajectory_embedding(traj, max_action_bins=config.max_action_bins).tolist()
         for traj in dataset.agent_trajectories
@@ -360,9 +364,11 @@ def _build_diagnostics(
         role.id: [0.0 for _ in range(config.max_action_bins)] for role in roles
     }
     role_counts = {role.id: 0 for role in roles}
+    role_members = {role.id: [] for role in roles}
     for traj, role_id in zip(dataset.agent_trajectories, role_label_names):
         if role_id not in role_action_histograms:
             continue
+        role_members[role_id].append(traj.id)
         hist = trajectory_action_histogram(traj, config.max_action_bins).tolist()
         role_action_histograms[role_id] = [
             current + value
@@ -394,6 +400,36 @@ def _build_diagnostics(
         for mission_i, mission_id in enumerate(mission_ids):
             matrix[role_i][mission_i] = norm_by_pair.get((role_id, mission_id), 0.0)
 
+    role_prototypes = {
+        role.id: {
+            "trajectory_id": role.medoid,
+            "timeline": trajectory_timelines.get(role.medoid, []),
+            "pattern": role.representative_pattern,
+        }
+        for role in roles
+    }
+    goal_prototypes = {
+        goal.id: {
+            "episode": goal.medoid_episode,
+            "time": goal.medoid_time,
+            "plan": goal.representative_plan,
+        }
+        for goal in goals
+    }
+    role_distance_labels, role_distance_matrix = _prototype_distance_matrix(
+        [role.id for role in roles],
+        [role.representative_pattern for role in roles],
+    )
+    goal_distance_labels, goal_distance_matrix = _prototype_distance_matrix(
+        [goal.id for goal in goals],
+        [goal.representative_plan for goal in goals],
+    )
+    role_hierarchy_edges = _hierarchy_edges(
+        [role.id for role in roles],
+        [role.representative_pattern for role in roles],
+    )
+    goal_hierarchy_edges = _goal_hierarchy_edges(missions, goals)
+
     return TEMMDiagnostics(
         role_embeddings=role_embeddings,
         role_labels=role_label_names,
@@ -411,7 +447,85 @@ def _build_diagnostics(
         role_mission_matrix=matrix,
         role_mission_roles=role_ids,
         role_mission_missions=mission_ids,
+        trajectory_timelines=trajectory_timelines,
+        role_members=role_members,
+        role_prototypes=role_prototypes,
+        goal_prototypes=goal_prototypes,
+        role_distance_matrix=role_distance_matrix,
+        role_distance_labels=role_distance_labels,
+        goal_distance_matrix=goal_distance_matrix,
+        goal_distance_labels=goal_distance_labels,
+        role_hierarchy_edges=role_hierarchy_edges,
+        goal_hierarchy_edges=goal_hierarchy_edges,
     )
+
+
+def _prototype_distance_matrix(
+    labels: List[str], sequences: List[List[str]]
+) -> tuple[List[str], List[List[float]]]:
+    matrix = []
+    for left in sequences:
+        row = []
+        for right in sequences:
+            row.append(1.0 - _jaccard(left, right))
+        matrix.append(row)
+    return labels, matrix
+
+
+def _hierarchy_edges(labels: List[str], sequences: List[List[str]]) -> List[Dict]:
+    edges = []
+    for child_index, child_sequence in enumerate(sequences):
+        best_parent = None
+        best_score = 0.0
+        child_set = set(child_sequence)
+        if not child_set:
+            continue
+        for parent_index, parent_sequence in enumerate(sequences):
+            if parent_index == child_index:
+                continue
+            parent_set = set(parent_sequence)
+            overlap = len(child_set & parent_set) / len(child_set)
+            if overlap > best_score:
+                best_score = overlap
+                best_parent = labels[parent_index]
+        if best_parent is not None and best_score > 0.0:
+            edges.append(
+                {
+                    "parent": best_parent,
+                    "child": labels[child_index],
+                    "support": float(best_score),
+                }
+            )
+    return edges
+
+
+def _goal_hierarchy_edges(
+    missions: List[InferredMission], goals: List[InferredGoal]
+) -> List[Dict]:
+    edges = []
+    goal_ids = {goal.id for goal in goals}
+    for mission in missions:
+        for goal in mission.goals:
+            if goal in goal_ids:
+                edges.append(
+                    {
+                        "parent": mission.id,
+                        "child": goal,
+                        "support": float(mission.support),
+                    }
+                )
+    return edges
+
+
+def _jaccard(left: List[str], right: List[str]) -> float:
+    left_set = set(left)
+    right_set = set(right)
+    if not left_set and not right_set:
+        return 1.0
+    union = left_set | right_set
+    if not union:
+        return 0.0
+    return len(left_set & right_set) / len(union)
 
 
 def _successful_joint_steps(dataset: TEMMTrajectoryDataset, success_quantile: float):
