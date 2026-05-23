@@ -356,6 +356,38 @@ def test_wandb_payload_includes_plotly_figures(monkeypatch, tmp_path):
     assert any(name and name.startswith("figures/") for _, name in artifacts[0].files)
 
 
+def test_wandb_run_id_resolution_prefers_original_training_run(tmp_path):
+    wandb_dir = tmp_path / "wandb"
+    training_run = wandb_dir / "run-20260523_010000-original123"
+    temm_run = wandb_dir / "run-20260523_020000-display_name"
+    training_files = training_run / "files"
+    temm_files = temm_run / "files"
+    training_files.mkdir(parents=True)
+    temm_files.mkdir(parents=True)
+    (training_files / "wandb-metadata.json").write_text(
+        json.dumps(
+            {
+                "program": "/repo/benchmarl/run.py",
+                "codePath": "benchmarl/run.py",
+                "args": ["task=pettingzoo/orbital", "algorithm=mappo"],
+            }
+        )
+    )
+    (temm_files / "wandb-metadata.json").write_text(
+        json.dumps(
+            {
+                "program": "/repo/benchmarl/temm_analyze.py",
+                "codePath": "benchmarl/temm_analyze.py",
+            }
+        )
+    )
+
+    assert (
+        temm_wandb._resolve_local_wandb_run_id(tmp_path, "display_name")
+        == "original123"
+    )
+
+
 def test_temm_visualizations_handle_empty_result(tmp_path):
     from benchmarl.temm import TEMMDiagnostics
     from benchmarl.temm.types import FitScores

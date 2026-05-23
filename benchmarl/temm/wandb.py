@@ -38,6 +38,7 @@ def publish_temm_to_wandb(
     except ImportError:
         return False
 
+    run_id = _resolve_local_wandb_run_id(run_dir, run_id)
     active_run = wandb.run
     opened_run = False
     if active_run is None:
@@ -102,6 +103,73 @@ def publish_temm_to_wandb(
     finally:
         if opened_run:
             wandb.finish()
+
+
+def _resolve_local_wandb_run_id(run_dir: Path, fallback_run_id: str) -> str:
+    """Resolve the original W&B id from a BenchMARL run folder.
+
+    In sweeps, W&B may assign a short run id that differs from the display name.
+    Resuming by display name creates a second run with the same name, so TEMM
+    prefers the local training run id recorded under ``wandb/run-*``.
+    """
+
+    wandb_dir = Path(run_dir) / "wandb"
+    if not wandb_dir.exists():
+        return fallback_run_id
+
+    candidates = []
+    for path in wandb_dir.iterdir():
+        if not path.is_dir():
+            continue
+        match = re.match(r"(?:offline-)?run-(\d{8}_\d{6})-(.+)$", path.name)
+        if match is None:
+            continue
+
+        timestamp, local_run_id = match.groups()
+        metadata = _read_json(path / "files" / "wandb-metadata.json")
+        config_path = path / "files" / "config.yaml"
+        program = " ".join(
+            str(metadata.get(key, "")) for key in ("program", "codePath")
+        )
+        args = metadata.get("args") or []
+        args_text = "\n".join(str(arg) for arg in args)
+        config_text = ""
+        if config_path.exists():
+            try:
+                config_text = config_path.read_text(errors="ignore")
+            except OSError:
+                config_text = ""
+
+        is_temm_run = "temm_analyze.py" in program
+        looks_like_training = (
+            "benchmarl/run.py" in program
+            or "task=" in args_text
+            or "algorithm_name:" in config_text
+            or "experiment_config:" in config_text
+        )
+        score = 0
+        if not is_temm_run:
+            score += 100
+        if looks_like_training:
+            score += 50
+        if local_run_id == fallback_run_id:
+            score += 10
+        candidates.append((score, timestamp, local_run_id))
+
+    if not candidates:
+        return fallback_run_id
+
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    return candidates[0][2]
+
+
+def _read_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def _fit_table(wandb, result: TEMMResult):
