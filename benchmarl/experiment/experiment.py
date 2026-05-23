@@ -128,6 +128,10 @@ class ExperimentConfig:
     keep_checkpoints_num: Optional[int] = MISSING
     exclude_buffer_from_checkpoint: bool = MISSING
     organizational_model: Optional[str] = MISSING
+    temm_enabled: bool = MISSING
+    temm_episodes: Optional[int] = MISSING
+    temm_output_name: str = MISSING
+    temm_wandb_report: bool = MISSING
 
     def train_batch_size(self, on_policy: bool) -> int:
         """
@@ -845,7 +849,31 @@ class Experiment(CallbackNotifier):
 
         if self.config.checkpoint_at_end:
             self._save_experiment()
+        self._temm_analysis_at_end()
         self.close()
+
+    def _temm_analysis_at_end(self) -> None:
+        if not getattr(self.config, "temm_enabled", False):
+            return
+        try:
+            from benchmarl.temm import TEMMConfig, run_temm_for_experiment
+
+            episodes = (
+                getattr(self.config, "temm_episodes", None)
+                or self.config.evaluation_episodes
+            )
+            output_name = getattr(self.config, "temm_output_name", "temm_result.json")
+            create_report = getattr(self.config, "temm_wandb_report", True)
+            temm_config = TEMMConfig(episodes=episodes)
+            run_temm_for_experiment(
+                experiment=self,
+                config=temm_config,
+                output_path=self.folder_name / output_name,
+                publish_wandb="wandb" in self.config.loggers,
+                create_wandb_report=create_report,
+            )
+        except Exception as err:
+            warnings.warn(f"TEMM analysis at end of run failed: {err}")
 
     def close(self):
         """Close the experiment."""

@@ -135,3 +135,12 @@ exclude_buffer_from_checkpoint: False
 
 # Optional MMA organizational model id. Null disables role masks and goal reward shaping.
 organizational_model: null
+
+# Run TEMM automatically at the end of the experiment and write TEMM artifacts
+# in the experiment folder.
+temm_enabled: True
+# If null, uses evaluation_episodes.
+temm_episodes: null
+temm_output_name: "temm_result.json"
+# Upload TEMM files to W&B and create a W&B report when wandb[workspaces] is installed.
+temm_wandb_report: True

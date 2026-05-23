@@ -6,6 +6,7 @@
 
 from .analysis import analyze_rollouts
 from .config import TEMMConfig
+from .runner import collect_evaluation_rollouts, run_temm_for_experiment, write_summary
 from .trajectory import extract_trajectories
 from .types import (
     FitScores,
@@ -18,6 +19,7 @@ from .types import (
 
 __all__ = [
     "analyze_rollouts",
+    "collect_evaluation_rollouts",
     "extract_trajectories",
     "FitScores",
     "InferredGoal",
@@ -26,4 +28,6 @@ __all__ = [
     "InferredRole",
     "TEMMConfig",
     "TEMMResult",
+    "run_temm_for_experiment",
+    "write_summary",
 ]
