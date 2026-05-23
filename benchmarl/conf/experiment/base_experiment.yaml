@@ -142,5 +142,5 @@ temm_enabled: True
 # If null, uses evaluation_episodes.
 temm_episodes: null
 temm_output_name: "temm_result.json"
-# Upload TEMM files to W&B and create a W&B report when wandb[workspaces] is installed.
-temm_wandb_report: True
+# Upload TEMM and MOISE+MARL panels to a W&B Charts section.
+temm_wandb_section: True

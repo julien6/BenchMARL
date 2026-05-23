@@ -89,7 +89,7 @@ def run_temm_for_experiment(
     config: TEMMConfig,
     output_path: Path,
     publish_wandb: bool = True,
-    create_wandb_report: bool = True,
+    create_wandb_section: bool = True,
 ) -> TEMMResult:
     print(f"Collecting {config.episodes} TEMM evaluation episodes...", flush=True)
     rollouts = collect_evaluation_rollouts(experiment, config)
@@ -103,7 +103,7 @@ def run_temm_for_experiment(
     print(f"TEMM results written to {output_path}", flush=True)
     print(f"TEMM summary written to {summary_path}", flush=True)
 
-    if publish_wandb:
+    if publish_wandb and create_wandb_section:
         entity = experiment.config.wandb_extra_kwargs.get("entity")
         published = publish_temm_to_wandb(
             result=result,
@@ -114,8 +114,11 @@ def run_temm_for_experiment(
             run_id=experiment.name,
             run_name=experiment.name,
             run_dir=experiment.folder_name,
-            create_report=create_wandb_report,
+            organizational_model_id=getattr(
+                experiment.config, "organizational_model", None
+            ),
+            organizational_model=getattr(experiment, "organizational_model", None),
         )
         if published:
-            print("TEMM files published to W&B.", flush=True)
+            print("TEMM & MOISE+MARL section published to W&B.", flush=True)
     return result

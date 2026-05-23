@@ -63,7 +63,7 @@ setup(
         "gnn": ["torch_geometric"],
         "logging": ["moviepy", "wandb"],
         "eval": ["id-marl-eval"],
-        "temm": ["scikit-learn", "scipy", "wandb[workspaces]"],
+        "temm": ["scikit-learn", "scipy"],
     },
     packages=find_packages(),
     include_package_data=True,

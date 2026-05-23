@@ -151,7 +151,7 @@ def test_temm_cli_smoke_writes_result_and_summary(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cli,
         "run_temm_for_experiment",
-        lambda experiment, config, output_path, publish_wandb, create_wandb_report: (
+        lambda experiment, config, output_path, publish_wandb, create_wandb_section: (
             analyze_rollouts(
                 [_rollout(True), _rollout(True)], GROUP_MAP, config
             ).to_json(output_path),

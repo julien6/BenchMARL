@@ -55,10 +55,16 @@ def main() -> None:
     parser.add_argument("--obligation-exclusivity-threshold", type=float, default=0.75)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
-        "--wandb-report",
+        "--wandb-section",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Upload TEMM files to W&B and create a report when supported.",
+        help="Upload TEMM and MOISE+MARL panels to the W&B Charts section.",
+    )
+    parser.add_argument(
+        "--wandb-report",
+        action=argparse.BooleanOptionalAction,
+        dest="wandb_section",
+        help=argparse.SUPPRESS,
     )
     args = parser.parse_args()
 
@@ -79,8 +85,8 @@ def main() -> None:
             experiment=experiment,
             config=config,
             output_path=Path(config.output_path),
-            publish_wandb=args.wandb_report,
-            create_wandb_report=args.wandb_report,
+            publish_wandb=args.wandb_section,
+            create_wandb_section=args.wandb_section,
         )
     finally:
         close_experiment_for_temm(experiment)

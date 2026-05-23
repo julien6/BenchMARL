@@ -131,7 +131,8 @@ class ExperimentConfig:
     temm_enabled: bool = MISSING
     temm_episodes: Optional[int] = MISSING
     temm_output_name: str = MISSING
-    temm_wandb_report: bool = MISSING
+    temm_wandb_section: bool = MISSING
+    temm_wandb_report: Optional[bool] = None
 
     def train_batch_size(self, on_policy: bool) -> int:
         """
@@ -863,14 +864,18 @@ class Experiment(CallbackNotifier):
                 or self.config.evaluation_episodes
             )
             output_name = getattr(self.config, "temm_output_name", "temm_result.json")
-            create_report = getattr(self.config, "temm_wandb_report", True)
+            create_section = getattr(
+                self.config,
+                "temm_wandb_section",
+                getattr(self.config, "temm_wandb_report", True),
+            )
             temm_config = TEMMConfig(episodes=episodes)
             run_temm_for_experiment(
                 experiment=self,
                 config=temm_config,
                 output_path=self.folder_name / output_name,
                 publish_wandb="wandb" in self.config.loggers,
-                create_wandb_report=create_report,
+                create_wandb_section=create_section,
             )
         except Exception as err:
             warnings.warn(f"TEMM analysis at end of run failed: {err}")
