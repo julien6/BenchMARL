@@ -28,6 +28,8 @@ def publish_temm_to_wandb(
     run_dir: Path,
     organizational_model_id: Optional[str] = None,
     organizational_model: Optional[Any] = None,
+    figures: Optional[Mapping[str, Any]] = None,
+    figure_paths: Optional[Mapping[str, Path]] = None,
 ) -> bool:
     """Upload TEMM files and panels to a W&B run Charts section."""
 
@@ -58,38 +60,61 @@ def publish_temm_to_wandb(
         active_run.summary["temm/goals"] = len(result.goals)
         active_run.summary["temm/missions"] = len(result.missions)
 
-        active_run.log(
-            {
-                f"{WANDB_SECTION}/organizational_model": _model_table(
-                    wandb, organizational_model_id
-                ),
-                f"{WANDB_SECTION}/roles": _roles_table(
-                    wandb, organizational_model
-                ),
-                f"{WANDB_SECTION}/goals": _goals_table(
-                    wandb, organizational_model
-                ),
-                f"{WANDB_SECTION}/TEMM_summary": wandb.Html(
-                    _pre_html(summary_path.read_text())
-                ),
-                f"{WANDB_SECTION}/TEMM_json": wandb.Html(
-                    _pre_html(json.dumps(result.to_dict(), indent=2))
-                ),
-                f"{WANDB_SECTION}/organizational_fit": result.fit.organizational,
-                f"{WANDB_SECTION}/structural_fit": result.fit.structural,
-                f"{WANDB_SECTION}/functional_fit": result.fit.functional,
-            }
-        )
+        log_payload = {
+            f"{WANDB_SECTION}/fit_scores": _fit_table(wandb, result),
+            f"{WANDB_SECTION}/organizational_model": _model_table(
+                wandb, organizational_model_id
+            ),
+            f"{WANDB_SECTION}/roles": _roles_table(wandb, organizational_model),
+            f"{WANDB_SECTION}/goals": _goals_table(wandb, organizational_model),
+            f"{WANDB_SECTION}/TEMM_roles": _temm_roles_table(wandb, result),
+            f"{WANDB_SECTION}/TEMM_goals": _temm_goals_table(wandb, result),
+            f"{WANDB_SECTION}/TEMM_missions": _temm_missions_table(wandb, result),
+            f"{WANDB_SECTION}/TEMM_permissions": _temm_norms_table(
+                wandb, result.permissions
+            ),
+            f"{WANDB_SECTION}/TEMM_obligations": _temm_norms_table(
+                wandb, result.obligations
+            ),
+            f"{WANDB_SECTION}/TEMM_summary": wandb.Html(
+                _pre_html(summary_path.read_text())
+            ),
+            f"{WANDB_SECTION}/TEMM_json": wandb.Html(
+                _pre_html(json.dumps(result.to_dict(), indent=2))
+            ),
+            f"{WANDB_SECTION}/organizational_fit": result.fit.organizational,
+            f"{WANDB_SECTION}/structural_fit": result.fit.structural,
+            f"{WANDB_SECTION}/functional_fit": result.fit.functional,
+        }
+        if figures:
+            for name, figure in figures.items():
+                log_payload[f"{WANDB_SECTION}/{name}"] = wandb.Plotly(figure)
+        active_run.log(log_payload)
 
         artifact_name = _sanitize_artifact_name(f"temm-{run_id}")
         artifact = wandb.Artifact(artifact_name, type="temm")
         artifact.add_file(str(result_path), name=result_path.name)
         artifact.add_file(str(summary_path), name=summary_path.name)
+        for path in (figure_paths or {}).values():
+            artifact.add_file(str(path), name=f"figures/{path.name}")
         active_run.log_artifact(artifact)
         return True
     finally:
         if opened_run:
             wandb.finish()
+
+
+def _fit_table(wandb, result: TEMMResult):
+    return wandb.Table(
+        columns=["metric", "value"],
+        data=[
+            ["structural_fit", result.fit.structural],
+            ["functional_fit", result.fit.functional],
+            ["organizational_fit", result.fit.organizational],
+            ["mean_return", result.mean_return],
+            ["reward_std", result.reward_std],
+        ],
+    )
 
 
 def _model_table(wandb, model_id: Optional[str]):
@@ -143,6 +168,103 @@ def _goals_table(wandb, organizational_model: Optional[Any]):
     return wandb.Table(columns=["goal", "description", "assigned_agents"], data=rows)
 
 
+def _temm_roles_table(wandb, result: TEMMResult):
+    rows = [
+        [
+            role.id,
+            ", ".join(role.assigned_agents) or "-",
+            role.support,
+            role.variance,
+            role.representativeness,
+            role.medoid,
+            _list_cell(role.representative_pattern),
+        ]
+        for role in result.roles
+    ]
+    if not rows:
+        rows = [["-", "-", 0, 0.0, 0.0, "-", "-"]]
+    return wandb.Table(
+        columns=[
+            "role",
+            "assigned_agents",
+            "support",
+            "variance",
+            "representativeness",
+            "medoid",
+            "representative_pattern",
+        ],
+        data=rows,
+    )
+
+
+def _temm_goals_table(wandb, result: TEMMResult):
+    rows = [
+        [
+            goal.id,
+            goal.support,
+            goal.variance,
+            goal.representativeness,
+            goal.medoid_episode,
+            goal.medoid_time,
+            _list_cell(goal.representative_plan),
+            _list_cell([f"{value:.4f}" for value in goal.centroid[:12]]),
+        ]
+        for goal in result.goals
+    ]
+    if not rows:
+        rows = [["-", 0, 0.0, 0.0, -1, -1, "-", "-"]]
+    return wandb.Table(
+        columns=[
+            "goal",
+            "support",
+            "variance",
+            "representativeness",
+            "medoid_episode",
+            "medoid_time",
+            "representative_plan",
+            "centroid_preview",
+        ],
+        data=rows,
+    )
+
+
+def _temm_missions_table(wandb, result: TEMMResult):
+    rows = [
+        [mission.id, _list_cell(mission.goals), mission.support]
+        for mission in result.missions
+    ]
+    if not rows:
+        rows = [["-", "-", 0]]
+    return wandb.Table(columns=["mission", "goals", "support"], data=rows)
+
+
+def _temm_norms_table(wandb, norms):
+    rows = [
+        [
+            norm.kind,
+            norm.role,
+            norm.mission,
+            norm.temporal_constraint,
+            norm.support,
+            "-" if norm.exclusivity is None else norm.exclusivity,
+        ]
+        for norm in norms
+    ]
+    if not rows:
+        rows = [["-", "-", "-", "-", 0.0, "-"]]
+    return wandb.Table(
+        columns=[
+            "kind",
+            "role",
+            "mission",
+            "temporal_constraint",
+            "support",
+            "exclusivity",
+        ],
+        data=rows,
+    )
+
+
 def _assignment_index(assignments: Mapping[str, str]) -> dict[str, list[str]]:
     indexed = {}
     for agent_name, item_name in assignments.items():
@@ -158,6 +280,13 @@ def _one_line_description(item: Any) -> str:
     if docstring:
         return " ".join(docstring.strip().split())
     return "-"
+
+
+def _list_cell(values) -> str:
+    values = list(values)
+    if not values:
+        return "-"
+    return "\n".join(str(value) for value in values)
 
 
 def _pre_html(text: str) -> str:

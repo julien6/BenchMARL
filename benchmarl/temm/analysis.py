@@ -19,6 +19,7 @@ from .trajectory import (
     TEMMTrajectoryDataset,
     extract_trajectories,
     representative_plan_for,
+    trajectory_action_histogram,
     trajectory_embedding,
     transition_pattern,
 )
@@ -28,6 +29,7 @@ from .types import (
     InferredMission,
     InferredNorm,
     InferredRole,
+    TEMMDiagnostics,
     TEMMResult,
 )
 
@@ -42,11 +44,28 @@ def analyze_rollouts(
     return analyze_dataset(dataset, config)
 
 
+def analyze_rollouts_with_diagnostics(
+    rollouts: Sequence[TensorDictBase],
+    group_map: Dict[str, Sequence[str]],
+    config: TEMMConfig | None = None,
+) -> tuple[TEMMResult, TEMMDiagnostics]:
+    config = config or TEMMConfig()
+    dataset = extract_trajectories(rollouts, group_map)
+    return analyze_dataset_with_diagnostics(dataset, config)
+
+
 def analyze_dataset(dataset: TEMMTrajectoryDataset, config: TEMMConfig) -> TEMMResult:
+    result, _ = analyze_dataset_with_diagnostics(dataset, config)
+    return result
+
+
+def analyze_dataset_with_diagnostics(
+    dataset: TEMMTrajectoryDataset, config: TEMMConfig
+) -> tuple[TEMMResult, TEMMDiagnostics]:
     roles, role_labels, role_threshold, role_rep_threshold, sof = _infer_roles(
         dataset, config
     )
-    goals, goal_by_step, goal_threshold, goal_rep_threshold, fof = _infer_goals(
+    goals, goal_by_step, goal_labels, goal_steps, goal_threshold, goal_rep_threshold, fof = _infer_goals(
         dataset, config
     )
     missions, episode_missions = _infer_missions(goal_by_step)
@@ -58,7 +77,7 @@ def analyze_dataset(dataset: TEMMTrajectoryDataset, config: TEMMConfig) -> TEMMR
     returns = dataset.episode_returns
     mean_return = float(returns.mean().item()) if returns.numel() else 0.0
     reward_std = float(returns.std(unbiased=False).item()) if returns.numel() else 0.0
-    return TEMMResult(
+    result = TEMMResult(
         fit=FitScores(
             structural=float(sof),
             functional=float(fof),
@@ -87,6 +106,19 @@ def analyze_dataset(dataset: TEMMTrajectoryDataset, config: TEMMConfig) -> TEMMR
             "missions": len(missions),
         },
     )
+    diagnostics = _build_diagnostics(
+        dataset=dataset,
+        roles=roles,
+        role_labels=role_labels,
+        goals=goals,
+        goal_labels=goal_labels,
+        goal_steps=goal_steps,
+        missions=missions,
+        permissions=permissions,
+        obligations=obligations,
+        config=config,
+    )
+    return result, diagnostics
 
 
 def _infer_roles(
@@ -149,10 +181,18 @@ def _infer_roles(
 
 def _infer_goals(
     dataset: TEMMTrajectoryDataset, config: TEMMConfig
-) -> tuple[List[InferredGoal], Dict[tuple[int, int], str], float, float, float]:
+) -> tuple[
+    List[InferredGoal],
+    Dict[tuple[int, int], str],
+    Tensor,
+    list,
+    float,
+    float,
+    float,
+]:
     successful_steps = _successful_joint_steps(dataset, config.success_quantile)
     if not successful_steps:
-        return [], {}, 0.0, 0.0, 0.0
+        return [], {}, torch.empty(0, dtype=torch.long), [], 0.0, 0.0, 0.0
     embeddings = torch.stack([step.embedding.float() for step in successful_steps])
     clustering, threshold = choose_best_clustering(
         embeddings,
@@ -198,7 +238,15 @@ def _infer_goals(
         )
     reach_consistency = _goal_reach_consistency(dataset, goal_by_step)
     fof = (1.0 - clustering.normalized_intra_variance) * reach_consistency
-    return goals, goal_by_step, threshold, representativeness_threshold, _clamp01(fof)
+    return (
+        goals,
+        goal_by_step,
+        clustering.labels,
+        successful_steps,
+        threshold,
+        representativeness_threshold,
+        _clamp01(fof),
+    )
 
 
 def _infer_missions(
@@ -284,6 +332,86 @@ def _infer_norms(
                     )
                 )
     return permissions, obligations
+
+
+def _build_diagnostics(
+    dataset: TEMMTrajectoryDataset,
+    roles: List[InferredRole],
+    role_labels: Tensor,
+    goals: List[InferredGoal],
+    goal_labels: Tensor,
+    goal_steps: list,
+    missions: List[InferredMission],
+    permissions: List[InferredNorm],
+    obligations: List[InferredNorm],
+    config: TEMMConfig,
+) -> TEMMDiagnostics:
+    role_index_to_id = {int(role.id.rsplit("_", 1)[1]): role.id for role in roles}
+    role_embeddings = [
+        trajectory_embedding(traj, max_action_bins=config.max_action_bins).tolist()
+        for traj in dataset.agent_trajectories
+    ]
+    role_label_names = [
+        role_index_to_id.get(int(label), f"role_{int(label)}")
+        for label in role_labels.tolist()
+    ]
+    action_bin_labels = [f"action_{index}" for index in range(config.max_action_bins)]
+    role_action_histograms = {
+        role.id: [0.0 for _ in range(config.max_action_bins)] for role in roles
+    }
+    role_counts = {role.id: 0 for role in roles}
+    for traj, role_id in zip(dataset.agent_trajectories, role_label_names):
+        if role_id not in role_action_histograms:
+            continue
+        hist = trajectory_action_histogram(traj, config.max_action_bins).tolist()
+        role_action_histograms[role_id] = [
+            current + value
+            for current, value in zip(role_action_histograms[role_id], hist)
+        ]
+        role_counts[role_id] += 1
+    for role_id, count in role_counts.items():
+        if count:
+            role_action_histograms[role_id] = [
+                value / count for value in role_action_histograms[role_id]
+            ]
+
+    goal_index_to_id = {int(goal.id.rsplit("_", 1)[1]): goal.id for goal in goals}
+    goal_label_names = [
+        goal_index_to_id.get(int(label), f"goal_{int(label)}")
+        for label in goal_labels.tolist()
+    ]
+    goal_embeddings = [step.embedding.float().tolist() for step in goal_steps]
+    role_ids = [role.id for role in roles]
+    mission_ids = [mission.id for mission in missions]
+    matrix = [[0.0 for _ in mission_ids] for _ in role_ids]
+    norm_by_pair = {}
+    for norm in [*permissions, *obligations]:
+        norm_by_pair[(norm.role, norm.mission)] = max(
+            norm_by_pair.get((norm.role, norm.mission), 0.0),
+            float(norm.support),
+        )
+    for role_i, role_id in enumerate(role_ids):
+        for mission_i, mission_id in enumerate(mission_ids):
+            matrix[role_i][mission_i] = norm_by_pair.get((role_id, mission_id), 0.0)
+
+    return TEMMDiagnostics(
+        role_embeddings=role_embeddings,
+        role_labels=role_label_names,
+        role_trajectory_ids=[traj.id for traj in dataset.agent_trajectories],
+        role_agent_names=[traj.agent_name for traj in dataset.agent_trajectories],
+        role_episode_indices=[
+            traj.episode_index for traj in dataset.agent_trajectories
+        ],
+        role_action_histograms=role_action_histograms,
+        action_bin_labels=action_bin_labels,
+        goal_embeddings=goal_embeddings,
+        goal_labels=goal_label_names,
+        goal_episode_indices=[step.episode_index for step in goal_steps],
+        goal_time_indices=[step.time_index for step in goal_steps],
+        role_mission_matrix=matrix,
+        role_mission_roles=role_ids,
+        role_mission_missions=mission_ids,
+    )
 
 
 def _successful_joint_steps(dataset: TEMMTrajectoryDataset, success_quantile: float):

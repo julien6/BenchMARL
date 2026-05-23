@@ -102,3 +102,21 @@ class TEMMResult:
     def from_json(cls, path: str | Path) -> "TEMMResult":
         with open(path) as f:
             return cls.from_dict(json.load(f))
+
+
+@dataclass
+class TEMMDiagnostics:
+    role_embeddings: List[List[float]] = field(default_factory=list)
+    role_labels: List[str] = field(default_factory=list)
+    role_trajectory_ids: List[str] = field(default_factory=list)
+    role_agent_names: List[str] = field(default_factory=list)
+    role_episode_indices: List[int] = field(default_factory=list)
+    role_action_histograms: Dict[str, List[float]] = field(default_factory=dict)
+    action_bin_labels: List[str] = field(default_factory=list)
+    goal_embeddings: List[List[float]] = field(default_factory=list)
+    goal_labels: List[str] = field(default_factory=list)
+    goal_episode_indices: List[int] = field(default_factory=list)
+    goal_time_indices: List[int] = field(default_factory=list)
+    role_mission_matrix: List[List[float]] = field(default_factory=list)
+    role_mission_roles: List[str] = field(default_factory=list)
+    role_mission_missions: List[str] = field(default_factory=list)

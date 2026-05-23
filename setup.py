@@ -63,7 +63,7 @@ setup(
         "gnn": ["torch_geometric"],
         "logging": ["moviepy", "wandb"],
         "eval": ["id-marl-eval"],
-        "temm": ["scikit-learn", "scipy"],
+        "temm": ["scikit-learn", "scipy", "plotly", "networkx"],
     },
     packages=find_packages(),
     include_package_data=True,

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import List
 
@@ -15,9 +16,10 @@ from torchrl.envs.utils import ExplorationType, set_exploration_type
 
 from benchmarl.utils import seed_everything
 
-from .analysis import analyze_rollouts
+from .analysis import analyze_rollouts_with_diagnostics
 from .config import TEMMConfig
 from .types import TEMMResult
+from .visualization import TEMMVisualizer
 from .wandb import publish_temm_to_wandb
 
 
@@ -94,7 +96,9 @@ def run_temm_for_experiment(
     print(f"Collecting {config.episodes} TEMM evaluation episodes...", flush=True)
     rollouts = collect_evaluation_rollouts(experiment, config)
     print("Analyzing TEMM trajectories...", flush=True)
-    result = analyze_rollouts(rollouts, experiment.group_map, config)
+    result, diagnostics = analyze_rollouts_with_diagnostics(
+        rollouts, experiment.group_map, config
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     result.to_json(output_path)
@@ -102,6 +106,22 @@ def run_temm_for_experiment(
     write_summary(result, summary_path)
     print(f"TEMM results written to {output_path}", flush=True)
     print(f"TEMM summary written to {summary_path}", flush=True)
+    figures = {}
+    figure_paths = {}
+    if config.visualization_enabled:
+        try:
+            visualizer = TEMMVisualizer(result, diagnostics)
+            figures = visualizer.build_figures()
+            figure_paths = visualizer.write_html(
+                output_path.with_name(config.visualization_output_dir)
+            )
+            if figure_paths:
+                print(
+                    f"TEMM figures written to {next(iter(figure_paths.values())).parent}",
+                    flush=True,
+                )
+        except ImportError as err:
+            warnings.warn(f"TEMM visualizations skipped: {err}")
 
     if publish_wandb and create_wandb_section:
         entity = experiment.config.wandb_extra_kwargs.get("entity")
@@ -118,6 +138,8 @@ def run_temm_for_experiment(
                 experiment.config, "organizational_model", None
             ),
             organizational_model=getattr(experiment, "organizational_model", None),
+            figures=figures,
+            figure_paths=figure_paths,
         )
         if published:
             print("TEMM & MOISE+MARL section published to W&B.", flush=True)

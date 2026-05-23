@@ -129,7 +129,7 @@ def trajectory_embedding(
         trajectory.next_observations.shape[0], -1
     )
     delta = next_observations - observations
-    action_hist = _action_histogram(trajectory.actions, max_action_bins)
+    action_hist = trajectory_action_histogram(trajectory, max_action_bins)
     return torch.cat(
         [
             observations.mean(0),
@@ -139,6 +139,12 @@ def trajectory_embedding(
             action_hist,
         ]
     )
+
+
+def trajectory_action_histogram(
+    trajectory: AgentTrajectory, max_action_bins: int = 32
+) -> Tensor:
+    return _action_histogram(trajectory.actions, max_action_bins)
 
 
 def transition_pattern(

@@ -35,6 +35,9 @@ class TEMMConfig:
     output_path: str = "temm_result.json"
     seed: Optional[int] = None
     static_evaluation: Optional[bool] = None
+    visualization_enabled: bool = True
+    visualization_projection: str = "pca"
+    visualization_output_dir: str = "temm_figures"
 
     def __post_init__(self) -> None:
         if self.episodes <= 0:
@@ -51,3 +54,5 @@ class TEMMConfig:
                 raise ValueError(f"{name} must be in [0, 1].")
         if self.distance_metric not in {"euclidean", "cosine"}:
             raise ValueError("distance_metric must be 'euclidean' or 'cosine'.")
+        if self.visualization_projection != "pca":
+            raise ValueError("visualization_projection must be 'pca' for TEMM V1.")

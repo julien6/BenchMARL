@@ -10,9 +10,12 @@ import sys
 import torch
 from tensordict import TensorDict
 
+import benchmarl.temm.wandb as temm_wandb
 from benchmarl.temm import (
     TEMMConfig,
+    TEMMVisualizer,
     TEMMResult,
+    analyze_rollouts_with_diagnostics,
     analyze_rollouts,
     extract_trajectories,
 )
@@ -204,3 +207,134 @@ def test_temm_reload_falls_back_to_config_pickle(monkeypatch, tmp_path):
     )
 
     assert isinstance(cli.reload_experiment_for_temm(str(checkpoint)), FakeExperiment)
+
+
+def test_wandb_tables_process_temm_result_for_chart_section():
+    result = analyze_rollouts(
+        [_rollout(True), _rollout(True)], GROUP_MAP, _config(success_quantile=0.0)
+    )
+
+    class FakeTable:
+        def __init__(self, columns, data):
+            self.columns = columns
+            self.data = data
+
+    class FakeWandb:
+        Table = FakeTable
+
+    fit_table = temm_wandb._fit_table(FakeWandb, result)
+    roles_table = temm_wandb._temm_roles_table(FakeWandb, result)
+    goals_table = temm_wandb._temm_goals_table(FakeWandb, result)
+    missions_table = temm_wandb._temm_missions_table(FakeWandb, result)
+    permissions_table = temm_wandb._temm_norms_table(FakeWandb, result.permissions)
+
+    assert fit_table.columns == ["metric", "value"]
+    assert ["organizational_fit", result.fit.organizational] in fit_table.data
+    assert "representative_pattern" in roles_table.columns
+    assert "representative_plan" in goals_table.columns
+    assert missions_table.columns == ["mission", "goals", "support"]
+    assert permissions_table.columns == [
+        "kind",
+        "role",
+        "mission",
+        "temporal_constraint",
+        "support",
+        "exclusivity",
+    ]
+
+
+def test_temm_diagnostics_and_visualizations_export_html(tmp_path):
+    result, diagnostics = analyze_rollouts_with_diagnostics(
+        [_rollout(True), _rollout(True)], GROUP_MAP, _config(success_quantile=0.0)
+    )
+
+    assert len(diagnostics.role_embeddings) == len(diagnostics.role_labels)
+    assert diagnostics.role_action_histograms
+    assert len(diagnostics.goal_embeddings) == len(diagnostics.goal_labels)
+
+    visualizer = TEMMVisualizer(result, diagnostics)
+    figures = visualizer.build_figures()
+    assert {
+        "figure_fit_summary",
+        "figure_role_projection_pca",
+        "figure_goal_projection_pca",
+        "figure_role_behavior_heatmap",
+        "figure_role_mission_matrix",
+        "figure_mission_graph",
+    } <= set(figures)
+    for figure in figures.values():
+        assert figure.data
+
+    paths = visualizer.write_html(tmp_path / "temm_figures")
+    assert set(paths) == set(figures)
+    assert all(path.exists() for path in paths.values())
+
+
+def test_wandb_payload_includes_plotly_figures(monkeypatch, tmp_path):
+    result, diagnostics = analyze_rollouts_with_diagnostics(
+        [_rollout(True), _rollout(True)], GROUP_MAP, _config(success_quantile=0.0)
+    )
+    visualizer = TEMMVisualizer(result, diagnostics)
+    figures = visualizer.build_figures()
+    figure_paths = visualizer.write_html(tmp_path / "figures")
+    result_path = tmp_path / "temm_result.json"
+    summary_path = tmp_path / "temm_summary.txt"
+    result.to_json(result_path)
+    summary_path.write_text("summary\n")
+    logged = {}
+    artifacts = []
+
+    class FakeRun:
+        def __init__(self):
+            self.summary = {}
+
+        def log(self, payload):
+            logged.update(payload)
+
+        def log_artifact(self, artifact):
+            artifacts.append(artifact)
+
+    class FakeArtifact:
+        def __init__(self, name, type):
+            self.name = name
+            self.type = type
+            self.files = []
+
+        def add_file(self, path, name=None):
+            self.files.append((path, name))
+
+    class FakeWandb:
+        run = FakeRun()
+        Artifact = FakeArtifact
+
+        class Table:
+            def __init__(self, columns, data):
+                self.columns = columns
+                self.data = data
+
+        class Html:
+            def __init__(self, html):
+                self.html = html
+
+        class Plotly:
+            def __init__(self, figure):
+                self.figure = figure
+
+    monkeypatch.setitem(sys.modules, "wandb", FakeWandb)
+
+    assert temm_wandb.publish_temm_to_wandb(
+        result=result,
+        result_path=result_path,
+        summary_path=summary_path,
+        project="benchmarl",
+        entity=None,
+        run_id="run",
+        run_name="run",
+        run_dir=tmp_path,
+        figures=figures,
+        figure_paths=figure_paths,
+    )
+    assert "TEMM & MOISE+MARL/figure_fit_summary" in logged
+    assert "TEMM & MOISE+MARL/figure_mission_graph" in logged
+    assert artifacts
+    assert any(name and name.startswith("figures/") for _, name in artifacts[0].files)
