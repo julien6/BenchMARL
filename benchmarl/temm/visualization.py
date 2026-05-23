@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
 from typing import Dict
 
@@ -42,6 +43,12 @@ class TEMMVisualizer:
             "figure_goal_mission_hierarchy_tree": self.goal_mission_hierarchy_tree(go),
             "figure_role_distance_heatmap": self.role_distance_heatmap(go),
             "figure_goal_distance_heatmap": self.goal_distance_heatmap(go),
+        }
+
+    def build_explanations(self) -> Dict[str, str]:
+        return {
+            _matching_figure_name(name): _explanation_html(name, spec)
+            for name, spec in FIGURE_EXPLANATIONS.items()
         }
 
     def fit_summary(self, go):
@@ -413,11 +420,135 @@ class TEMMVisualizer:
     def write_html(self, output_dir: Path) -> Dict[str, Path]:
         output_dir.mkdir(parents=True, exist_ok=True)
         paths = {}
+        explanations = self.build_explanations()
         for name, figure in self.build_figures().items():
             path = output_dir / f"{name}.html"
-            figure.write_html(str(path), include_plotlyjs="cdn")
+            path.write_text(figure_panel_html(figure, explanations.get(name, "")))
             paths[name] = path
         return paths
+
+
+FIGURE_EXPLANATIONS = {
+    "explanation_fit_summary": {
+        "title": "Organizational coherence summary",
+        "interpretation": "Compare structural fit, functional fit, and their average organizational fit. Values are bounded between 0 and 1.",
+        "expected": "A coherent organization should keep all three values high, with no large gap between structural and functional fit.",
+        "failure": "Low structural fit suggests unstable roles. Low functional fit suggests goals or missions are not reached consistently.",
+    },
+    "explanation_role_projection_pca": {
+        "title": "Emergent role structure",
+        "interpretation": "Each point is an agent trajectory projected from behavior embeddings. Colors are inferred roles.",
+        "expected": "Clear separated color groups indicate stable behavioral specialization.",
+        "failure": "Heavy overlap or one collapsed cloud indicates weak role separation or highly stochastic behavior.",
+    },
+    "explanation_goal_projection_pca": {
+        "title": "Emergent goal structure",
+        "interpretation": "Each point is a successful joint observation projected from goal embeddings. Colors are inferred goals.",
+        "expected": "Compact clusters indicate recurrent successful states that TEMM can interpret as goal regions.",
+        "failure": "Diffuse or overlapping points suggest goals are noisy, under-specified, or not repeatedly reached.",
+    },
+    "explanation_role_behavior_heatmap": {
+        "title": "Behavioral signature by role",
+        "interpretation": "Rows are inferred roles, columns are action bins or semantic action labels, and color is action frequency.",
+        "expected": "Different roles should emphasize different actions or action families.",
+        "failure": "Identical rows suggest roles are not behaviorally distinct. A single dominant idle action may indicate inactive policies.",
+    },
+    "explanation_role_mission_matrix": {
+        "title": "Normative role-mission association",
+        "interpretation": "Cells approximate P(mission | role). High values support permissions or obligations.",
+        "expected": "Specialized roles should show strong associations with a small number of missions.",
+        "failure": "Uniform low support means missions are rarely reached. Uniform high support may indicate no real specialization.",
+    },
+    "explanation_mission_graph": {
+        "title": "Functional organization",
+        "interpretation": "Nodes are inferred missions and goals. Edges connect missions to the goals observed inside them.",
+        "expected": "A readable mission-to-goal decomposition indicates recurring collective workflows.",
+        "failure": "No edges or many isolated nodes indicate weak mission structure or sparse successful rollouts.",
+    },
+    "explanation_role_prototype_timelines": {
+        "title": "Role prototype behavior",
+        "interpretation": "Each line follows the medoid trajectory of a role across time. Hover text shows semantic action/state information.",
+        "expected": "A prototype should show a plausible repeated behavior pattern for its role.",
+        "failure": "Erratic action changes, unexplained idle stretches, or contradictory interpretations indicate weak role semantics.",
+    },
+    "explanation_goal_prototype_timelines": {
+        "title": "Plans leading to goals",
+        "interpretation": "Rows summarize representative steps immediately preceding an inferred goal.",
+        "expected": "Plans should contain actions and state tags that make the goal arrival understandable.",
+        "failure": "Plans with unrelated or empty actions suggest the goal cluster is not behaviorally meaningful.",
+    },
+    "explanation_symbolic_rule_table": {
+        "title": "Extracted symbolic regularities",
+        "interpretation": "Rows condense representative role patterns and goal plans into readable symbolic sequences.",
+        "expected": "Rules should be short enough to inspect and semantically consistent with the task.",
+        "failure": "Very repetitive, generic, or contradictory rules indicate that the current abstraction is too coarse.",
+    },
+    "explanation_agent_role_episode_map": {
+        "title": "Role stability over episodes",
+        "interpretation": "Rows are agents, columns are episodes, and colors show the inferred role for each agent trajectory.",
+        "expected": "Stable organization should show consistent role assignments or interpretable switching.",
+        "failure": "Random-looking colors across episodes suggest unstable specialization.",
+    },
+    "explanation_role_hierarchy_tree": {
+        "title": "Approximate structural hierarchy",
+        "interpretation": "Edges approximate role inheritance or inclusion using overlap between representative patterns.",
+        "expected": "Related roles should form small readable branches.",
+        "failure": "Dense or arbitrary edges mean the hierarchy approximation is not yet reliable.",
+    },
+    "explanation_goal_mission_hierarchy_tree": {
+        "title": "Functional hierarchy",
+        "interpretation": "Edges show mission-to-goal containment inferred from successful episodes.",
+        "expected": "Missions should decompose into goals that match recurring successful behavior.",
+        "failure": "Flat or empty trees suggest TEMM did not find a stable functional decomposition.",
+    },
+    "explanation_role_distance_heatmap": {
+        "title": "Role prototype similarity",
+        "interpretation": "Cells show distances between representative role patterns. Darker/lower values mean more similar roles.",
+        "expected": "Different roles should have meaningful distance from each other, while related roles can remain closer.",
+        "failure": "All distances near zero indicate redundant roles. All distances high may indicate fragmented noisy clusters.",
+    },
+    "explanation_goal_distance_heatmap": {
+        "title": "Goal prototype similarity",
+        "interpretation": "Cells show distances between representative goal plans or goal prototypes.",
+        "expected": "Related goals should cluster visually, while distinct goals should remain separated.",
+        "failure": "Uniform distances suggest that the current goal abstraction is either too coarse or too fragmented.",
+    },
+}
+
+
+def _explanation_html(name: str, spec: Dict[str, str]) -> str:
+    return (
+        "<div style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; "
+        "font-size: 13px; line-height: 1.45;'>"
+        "<hr style='border: 0; border-top: 1px solid #d0d5dd; margin: 8px 0 10px 0;'>"
+        "<details>"
+        "<summary style='cursor: pointer; font-weight: 600;'>Explanation</summary>"
+        "<div style='margin-top: 10px;'>"
+        f"<p><strong>Title (Type d’organisation)</strong><br>{escape(spec['title'])}</p>"
+        f"<p><strong>Interpretation block (Comment lire)</strong><br>{escape(spec['interpretation'])}</p>"
+        f"<p><strong>Expected pattern (Ce qu’on espère voir)</strong><br>{escape(spec['expected'])}</p>"
+        f"<p><strong>Failure modes (Ce qui indique un problème)</strong><br>{escape(spec['failure'])}</p>"
+        f"<p style='color:#667085; font-size: 12px;'>Panel: {escape(name)}</p>"
+        "</div>"
+        "</details>"
+        "</div>"
+    )
+
+
+def figure_panel_html(figure, explanation_html: str = "") -> str:
+    figure_html = figure.to_html(full_html=False, include_plotlyjs="cdn")
+    return (
+        "<div style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;'>"
+        f"{figure_html}"
+        f"{explanation_html}"
+        "</div>"
+    )
+
+
+def _matching_figure_name(explanation_name: str) -> str:
+    if explanation_name.startswith("explanation_"):
+        return "figure_" + explanation_name[len("explanation_") :]
+    return explanation_name
 
 
 def _pca2(values) -> torch.Tensor:

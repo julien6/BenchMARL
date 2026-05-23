@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from .types import TEMMResult
+from .visualization import figure_panel_html
 
 WANDB_SECTION = "TEMM & MOISE+MARL"
 
@@ -29,6 +30,7 @@ def publish_temm_to_wandb(
     organizational_model_id: Optional[str] = None,
     organizational_model: Optional[Any] = None,
     figures: Optional[Mapping[str, Any]] = None,
+    explanations: Optional[Mapping[str, str]] = None,
     figure_paths: Optional[Mapping[str, Path]] = None,
     diagnostics: Optional[Any] = None,
 ) -> bool:
@@ -93,7 +95,10 @@ def publish_temm_to_wandb(
         }
         if figures:
             for name, figure in figures.items():
-                log_payload[f"{WANDB_SECTION}/{name}"] = wandb.Plotly(figure)
+                explanation = (explanations or {}).get(name, "")
+                log_payload[f"{WANDB_SECTION}/{name}"] = wandb.Html(
+                    figure_panel_html(figure, explanation)
+                )
         active_run.log(log_payload)
 
         artifact_name = _sanitize_artifact_name(f"temm-{run_id}")

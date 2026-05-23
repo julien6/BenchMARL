@@ -342,6 +342,9 @@ def test_temm_diagnostics_and_visualizations_export_html(tmp_path):
     paths = visualizer.write_html(tmp_path / "temm_figures")
     assert set(paths) == set(figures)
     assert all(path.exists() for path in paths.values())
+    fit_html = paths["figure_fit_summary"].read_text()
+    assert "<details>" in fit_html
+    assert "Explanation" in fit_html
 
 
 def test_wandb_payload_includes_plotly_figures(monkeypatch, tmp_path):
@@ -350,6 +353,7 @@ def test_wandb_payload_includes_plotly_figures(monkeypatch, tmp_path):
     )
     visualizer = TEMMVisualizer(result, diagnostics)
     figures = visualizer.build_figures()
+    explanations = visualizer.build_explanations()
     figure_paths = visualizer.write_html(tmp_path / "figures")
     result_path = tmp_path / "temm_result.json"
     summary_path = tmp_path / "temm_summary.txt"
@@ -406,12 +410,15 @@ def test_wandb_payload_includes_plotly_figures(monkeypatch, tmp_path):
         run_name="run",
         run_dir=tmp_path,
         figures=figures,
+        explanations=explanations,
         figure_paths=figure_paths,
     )
     assert "TEMM & MOISE+MARL/figure_fit_summary" in logged
     assert "TEMM & MOISE+MARL/figure_mission_graph" in logged
     assert "TEMM & MOISE+MARL/figure_role_prototype_timelines" in logged
     assert "TEMM & MOISE+MARL/figure_role_hierarchy_tree" in logged
+    assert "<details>" in logged["TEMM & MOISE+MARL/figure_fit_summary"].html
+    assert "Explanation" in logged["TEMM & MOISE+MARL/figure_fit_summary"].html
     assert artifacts
     assert any(name and name.startswith("figures/") for _, name in artifacts[0].files)
 

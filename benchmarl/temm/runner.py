@@ -109,11 +109,13 @@ def run_temm_for_experiment(
     print(f"TEMM results written to {output_path}", flush=True)
     print(f"TEMM summary written to {summary_path}", flush=True)
     figures = {}
+    explanations = {}
     figure_paths = {}
     if config.visualization_enabled:
         try:
             visualizer = TEMMVisualizer(result, diagnostics)
             figures = visualizer.build_figures()
+            explanations = visualizer.build_explanations()
             figure_paths = visualizer.write_html(
                 output_path.with_name(config.visualization_output_dir)
             )
@@ -141,6 +143,7 @@ def run_temm_for_experiment(
             ),
             organizational_model=getattr(experiment, "organizational_model", None),
             figures=figures,
+            explanations=explanations,
             figure_paths=figure_paths,
             diagnostics=diagnostics,
         )
