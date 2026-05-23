@@ -111,7 +111,10 @@ class TEMMVisualizer:
 
     def role_behavior_heatmap(self, go):
         role_ids = sorted(self.diagnostics.role_action_histograms)
-        action_labels = self.diagnostics.action_bin_labels
+        action_labels = _semantic_action_labels(
+            self.diagnostics.action_bin_labels,
+            self.diagnostics.semantic_action_map,
+        )
         values = [
             self.diagnostics.role_action_histograms[role_id]
             for role_id in role_ids
@@ -222,8 +225,11 @@ class TEMMVisualizer:
             y = [role_id for _ in timeline]
             text = [
                 f"t={step['t']}<br>obs={step['observation']}<br>"
-                f"action={step['action']}<br>delta={step['delta']}<br>"
-                f"reward={step['reward']:.3f}"
+                f"action={step.get('action_label', step['action'])}<br>"
+                f"state={_tag_text(step.get('state_tags'))}<br>"
+                f"transition={_tag_text(step.get('transition_tags'))}<br>"
+                f"interpretation={step.get('interpretation', '-')}<br>"
+                f"raw={step.get('token', '-')}<br>reward={step['reward']:.3f}"
                 for step in timeline
             ]
             fig.add_trace(
@@ -248,24 +254,44 @@ class TEMMVisualizer:
     def goal_prototype_timelines(self, go):
         rows = []
         for goal_id, prototype in self.diagnostics.goal_prototypes.items():
-            plan = prototype.get("plan", []) or ["-"]
-            for index, token in enumerate(plan):
+            semantic_plan = prototype.get("semantic_plan", [])
+            plan = semantic_plan or [
+                {"token": token, "action_label": "-", "interpretation": "-"}
+                for token in (prototype.get("plan", []) or ["-"])
+            ]
+            for index, step in enumerate(plan):
                 rows.append(
                     [
                         goal_id,
                         prototype.get("episode", -1),
                         prototype.get("time", -1),
                         index,
-                        token,
+                        step.get("agent", "-"),
+                        step.get("token", "-"),
+                        step.get("action_label", "-"),
+                        _tag_text(step.get("state_tags")),
+                        _tag_text(step.get("transition_tags")),
+                        step.get("interpretation", "-"),
                     ]
                 )
         if not rows:
-            rows = [["-", -1, -1, 0, "-"]]
+            rows = [["-", -1, -1, 0, "-", "-", "-", "-", "-", "-"]]
         fig = go.Figure(
             data=[
                 go.Table(
                     header=dict(
-                        values=["goal", "episode", "time", "plan_step", "token"]
+                        values=[
+                            "goal",
+                            "episode",
+                            "time",
+                            "plan_step",
+                            "agent",
+                            "raw_token",
+                            "action_label",
+                            "state_tags",
+                            "transition_tags",
+                            "interpretation",
+                        ]
                     ),
                     cells=dict(values=_columns(rows)),
                 )
@@ -281,7 +307,10 @@ class TEMMVisualizer:
                 [
                     "role",
                     role.id,
-                    " -> ".join(role.representative_pattern) or "-",
+                    _semantic_rule(
+                        role.representative_pattern,
+                        role.representative_pattern_semantic,
+                    ),
                 ]
             )
         for goal in self.result.goals:
@@ -289,7 +318,10 @@ class TEMMVisualizer:
                 [
                     "goal",
                     goal.id,
-                    " -> ".join(goal.representative_plan) or "-",
+                    _semantic_rule(
+                        goal.representative_plan,
+                        goal.representative_plan_semantic,
+                    ),
                 ]
             )
         if not rows:
@@ -445,6 +477,34 @@ def _circle_positions(n_items: int) -> list[tuple[float, float]]:
 
 def _columns(rows):
     return [list(column) for column in zip(*rows)]
+
+
+def _tag_text(values) -> str:
+    if not values:
+        return "-"
+    return ", ".join(str(value) for value in values)
+
+
+def _semantic_action_labels(action_bin_labels, semantic_action_map):
+    labels = list(action_bin_labels)
+    for row in semantic_action_map:
+        action_id = row.get("action_id")
+        label = row.get("action_label")
+        if isinstance(action_id, int) and 0 <= action_id < len(labels) and label:
+            labels[action_id] = f"{action_id}:{label}"
+    return labels
+
+
+def _semantic_rule(raw_items, semantic_items) -> str:
+    if semantic_items:
+        parts = []
+        for item in semantic_items:
+            action = item.get("action_label", "-")
+            interpretation = item.get("interpretation", "-")
+            tags = _tag_text(item.get("state_tags"))
+            parts.append(f"{action} [{tags}] => {interpretation}")
+        return " -> ".join(parts) or "-"
+    return " -> ".join(raw_items) or "-"
 
 
 def _distance_heatmap(go, matrix, labels, title):

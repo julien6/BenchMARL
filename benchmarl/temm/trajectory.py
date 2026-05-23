@@ -171,7 +171,38 @@ def transition_pattern(
     return items
 
 
-def symbolic_timeline(trajectory: AgentTrajectory) -> List[Dict[str, object]]:
+def transition_pattern_semantic(
+    trajectory: AgentTrajectory,
+    semantic_adapter=None,
+    max_items: int = 8,
+) -> List[Dict[str, object]]:
+    observations = trajectory.observations.float().reshape(
+        trajectory.observations.shape[0], -1
+    )
+    next_observations = trajectory.next_observations.float().reshape(
+        trajectory.next_observations.shape[0], -1
+    )
+    actions = trajectory.actions.reshape(trajectory.actions.shape[0], -1)
+    items = []
+    stride = max(1, int(len(observations) / max(1, max_items)))
+    for time_index in range(0, len(observations), stride):
+        token = _transition_token(observations, next_observations, actions, time_index)
+        semantic = _semantic_step(
+            semantic_adapter,
+            observations[time_index],
+            actions[time_index],
+            next_observations[time_index],
+            trajectory.agent_name,
+        )
+        items.append({"t": time_index, "token": token, **semantic})
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def symbolic_timeline(
+    trajectory: AgentTrajectory, semantic_adapter=None
+) -> List[Dict[str, object]]:
     observations = trajectory.observations.float().reshape(
         trajectory.observations.shape[0], -1
     )
@@ -183,13 +214,23 @@ def symbolic_timeline(trajectory: AgentTrajectory) -> List[Dict[str, object]]:
     items = []
     for time_index in range(len(observations)):
         delta = next_observations[time_index] - observations[time_index]
+        token = _transition_token(observations, next_observations, actions, time_index)
+        semantic = _semantic_step(
+            semantic_adapter,
+            observations[time_index],
+            actions[time_index],
+            next_observations[time_index],
+            trajectory.agent_name,
+        )
         items.append(
             {
                 "t": time_index,
+                "token": token,
                 "observation": _bucket(float(observations[time_index].mean().item())),
                 "action": _action_label(actions[time_index]),
                 "delta": _bucket(float(delta.mean().item())),
                 "reward": float(rewards[time_index].mean().item()),
+                **semantic,
             }
         )
     return items
@@ -218,6 +259,53 @@ def representative_plan_for(
             action_label = _action_label(actions[step])
             items.append(
                 f"{traj.group}/{traj.agent_name}:obs:{obs_bucket}|act:{action_label}"
+            )
+    return items
+
+
+def representative_plan_semantic_for(
+    dataset: TEMMTrajectoryDataset,
+    episode_index: int,
+    time_index: int,
+    plan_window: int,
+    semantic_adapter=None,
+) -> List[Dict[str, object]]:
+    episode_agent_trajs = [
+        traj
+        for traj in dataset.agent_trajectories
+        if traj.episode_index == episode_index
+    ]
+    if not episode_agent_trajs:
+        return []
+    start = max(0, time_index - plan_window)
+    items = []
+    for traj in episode_agent_trajs:
+        observations = traj.observations.float().reshape(traj.observations.shape[0], -1)
+        next_observations = traj.next_observations.float().reshape(
+            traj.next_observations.shape[0], -1
+        )
+        actions = traj.actions.reshape(traj.actions.shape[0], -1)
+        for step in range(start, min(time_index + 1, len(observations))):
+            token = (
+                f"{traj.group}/{traj.agent_name}:"
+                f"{_transition_token(observations, next_observations, actions, step)}"
+            )
+            semantic = _semantic_step(
+                semantic_adapter,
+                observations[step],
+                actions[step],
+                next_observations[step],
+                traj.agent_name,
+            )
+            items.append(
+                {
+                    "episode": episode_index,
+                    "t": step,
+                    "group": traj.group,
+                    "agent": traj.agent_name,
+                    "token": token,
+                    **semantic,
+                }
             )
     return items
 
@@ -257,6 +345,33 @@ def _action_label(action: Tensor) -> str:
     if action.numel() == 1 and float(action[0].item()).is_integer():
         return str(int(action[0].item()))
     return ",".join(f"{float(value):.2f}" for value in action[:4])
+
+
+def _transition_token(
+    observations: Tensor, next_observations: Tensor, actions: Tensor, time_index: int
+) -> str:
+    obs_bucket = _bucket(float(observations[time_index].mean().item()))
+    delta = next_observations[time_index] - observations[time_index]
+    delta_bucket = _bucket(float(delta.mean().item()))
+    action_value = _action_label(actions[time_index])
+    return f"obs:{obs_bucket}|act:{action_value}|delta:{delta_bucket}"
+
+
+def _semantic_step(
+    semantic_adapter,
+    observation: Tensor,
+    action: Tensor,
+    next_observation: Tensor,
+    agent_name: str,
+) -> Dict[str, object]:
+    if semantic_adapter is None:
+        return {
+            "action_label": _action_label(action),
+            "state_tags": [],
+            "transition_tags": [],
+            "interpretation": "-",
+        }
+    return semantic_adapter.describe_step(observation, action, next_observation, agent_name)
 
 
 def _bucket(value: float) -> str:

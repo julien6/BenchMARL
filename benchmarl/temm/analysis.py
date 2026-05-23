@@ -19,11 +19,14 @@ from .trajectory import (
     TEMMTrajectoryDataset,
     extract_trajectories,
     representative_plan_for,
+    representative_plan_semantic_for,
     symbolic_timeline,
     trajectory_action_histogram,
     trajectory_embedding,
     transition_pattern,
+    transition_pattern_semantic,
 )
+from .semantic import resolve_semantic_adapter
 from .types import (
     FitScores,
     InferredGoal,
@@ -49,10 +52,11 @@ def analyze_rollouts_with_diagnostics(
     rollouts: Sequence[TensorDictBase],
     group_map: Dict[str, Sequence[str]],
     config: TEMMConfig | None = None,
+    semantic_adapter=None,
 ) -> tuple[TEMMResult, TEMMDiagnostics]:
     config = config or TEMMConfig()
     dataset = extract_trajectories(rollouts, group_map)
-    return analyze_dataset_with_diagnostics(dataset, config)
+    return analyze_dataset_with_diagnostics(dataset, config, semantic_adapter)
 
 
 def analyze_dataset(dataset: TEMMTrajectoryDataset, config: TEMMConfig) -> TEMMResult:
@@ -61,13 +65,14 @@ def analyze_dataset(dataset: TEMMTrajectoryDataset, config: TEMMConfig) -> TEMMR
 
 
 def analyze_dataset_with_diagnostics(
-    dataset: TEMMTrajectoryDataset, config: TEMMConfig
+    dataset: TEMMTrajectoryDataset, config: TEMMConfig, semantic_adapter=None
 ) -> tuple[TEMMResult, TEMMDiagnostics]:
+    semantic_adapter = semantic_adapter or resolve_semantic_adapter(config)
     roles, role_labels, role_threshold, role_rep_threshold, sof = _infer_roles(
-        dataset, config
+        dataset, config, semantic_adapter
     )
     goals, goal_by_step, goal_labels, goal_steps, goal_threshold, goal_rep_threshold, fof = _infer_goals(
-        dataset, config
+        dataset, config, semantic_adapter
     )
     missions, episode_missions = _infer_missions(goal_by_step)
     permissions, obligations = _infer_norms(
@@ -98,6 +103,7 @@ def analyze_dataset_with_diagnostics(
             "role_representativeness_threshold": role_rep_threshold,
             "goal_representativeness_threshold": goal_rep_threshold,
             "success_quantile": config.success_quantile,
+            "semantic_adapter": semantic_adapter.name,
         },
         metadata={
             "episodes": int(returns.numel()),
@@ -105,6 +111,7 @@ def analyze_dataset_with_diagnostics(
             "role_clusters": len(roles),
             "goal_clusters": len(goals),
             "missions": len(missions),
+            "semantic_adapter": semantic_adapter.name,
         },
     )
     diagnostics = _build_diagnostics(
@@ -118,12 +125,13 @@ def analyze_dataset_with_diagnostics(
         permissions=permissions,
         obligations=obligations,
         config=config,
+        semantic_adapter=semantic_adapter,
     )
     return result, diagnostics
 
 
 def _infer_roles(
-    dataset: TEMMTrajectoryDataset, config: TEMMConfig
+    dataset: TEMMTrajectoryDataset, config: TEMMConfig, semantic_adapter
 ) -> tuple[List[InferredRole], Tensor, float, float, float]:
     if not dataset.agent_trajectories:
         return [], torch.empty(0, dtype=torch.long), 0.0, 0.0, 0.0
@@ -168,6 +176,9 @@ def _infer_roles(
                 representativeness=representativeness,
                 medoid=medoid.id,
                 representative_pattern=transition_pattern(medoid),
+                representative_pattern_semantic=transition_pattern_semantic(
+                    medoid, semantic_adapter
+                ),
             )
         )
     sof = 1.0 - clustering.normalized_intra_variance
@@ -181,7 +192,7 @@ def _infer_roles(
 
 
 def _infer_goals(
-    dataset: TEMMTrajectoryDataset, config: TEMMConfig
+    dataset: TEMMTrajectoryDataset, config: TEMMConfig, semantic_adapter
 ) -> tuple[
     List[InferredGoal],
     Dict[tuple[int, int], str],
@@ -234,6 +245,13 @@ def _infer_goals(
                     medoid_step.episode_index,
                     medoid_step.time_index,
                     config.plan_window,
+                ),
+                representative_plan_semantic=representative_plan_semantic_for(
+                    dataset,
+                    medoid_step.episode_index,
+                    medoid_step.time_index,
+                    config.plan_window,
+                    semantic_adapter,
                 ),
             )
         )
@@ -346,10 +364,12 @@ def _build_diagnostics(
     permissions: List[InferredNorm],
     obligations: List[InferredNorm],
     config: TEMMConfig,
+    semantic_adapter,
 ) -> TEMMDiagnostics:
     role_index_to_id = {int(role.id.rsplit("_", 1)[1]): role.id for role in roles}
     trajectory_timelines = {
-        traj.id: symbolic_timeline(traj) for traj in dataset.agent_trajectories
+        traj.id: symbolic_timeline(traj, semantic_adapter)
+        for traj in dataset.agent_trajectories
     }
     role_embeddings = [
         trajectory_embedding(traj, max_action_bins=config.max_action_bins).tolist()
@@ -405,6 +425,7 @@ def _build_diagnostics(
             "trajectory_id": role.medoid,
             "timeline": trajectory_timelines.get(role.medoid, []),
             "pattern": role.representative_pattern,
+            "semantic_pattern": role.representative_pattern_semantic,
         }
         for role in roles
     }
@@ -413,6 +434,7 @@ def _build_diagnostics(
             "episode": goal.medoid_episode,
             "time": goal.medoid_time,
             "plan": goal.representative_plan,
+            "semantic_plan": goal.representative_plan_semantic,
         }
         for goal in goals
     }
@@ -457,6 +479,8 @@ def _build_diagnostics(
         goal_distance_labels=goal_distance_labels,
         role_hierarchy_edges=role_hierarchy_edges,
         goal_hierarchy_edges=goal_hierarchy_edges,
+        semantic_action_map=semantic_adapter.action_map(),
+        semantic_adapter=semantic_adapter.name,
     )
 
 

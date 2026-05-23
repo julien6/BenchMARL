@@ -38,6 +38,7 @@ class TEMMConfig:
     visualization_enabled: bool = True
     visualization_projection: str = "pca"
     visualization_output_dir: str = "temm_figures"
+    semantic_adapter: str = "auto"
 
     def __post_init__(self) -> None:
         if self.episodes <= 0:
@@ -56,3 +57,5 @@ class TEMMConfig:
             raise ValueError("distance_metric must be 'euclidean' or 'cosine'.")
         if self.visualization_projection != "pca":
             raise ValueError("visualization_projection must be 'pca' for TEMM V1.")
+        if self.semantic_adapter not in {"auto", "none", "orbital"}:
+            raise ValueError("semantic_adapter must be 'auto', 'none', or 'orbital'.")

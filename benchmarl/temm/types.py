@@ -28,6 +28,7 @@ class InferredRole:
     representativeness: float
     medoid: str
     representative_pattern: List[str]
+    representative_pattern_semantic: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -40,6 +41,7 @@ class InferredGoal:
     medoid_time: int
     centroid: List[float]
     representative_plan: List[str]
+    representative_plan_semantic: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -130,3 +132,5 @@ class TEMMDiagnostics:
     goal_distance_labels: List[str] = field(default_factory=list)
     role_hierarchy_edges: List[Dict[str, Any]] = field(default_factory=list)
     goal_hierarchy_edges: List[Dict[str, Any]] = field(default_factory=list)
+    semantic_action_map: List[Dict[str, Any]] = field(default_factory=list)
+    semantic_adapter: str = "generic"

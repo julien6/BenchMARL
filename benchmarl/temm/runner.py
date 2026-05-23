@@ -18,6 +18,7 @@ from benchmarl.utils import seed_everything
 
 from .analysis import analyze_rollouts_with_diagnostics
 from .config import TEMMConfig
+from .semantic import resolve_semantic_adapter
 from .types import TEMMResult
 from .visualization import TEMMVisualizer
 from .wandb import publish_temm_to_wandb
@@ -96,8 +97,9 @@ def run_temm_for_experiment(
     print(f"Collecting {config.episodes} TEMM evaluation episodes...", flush=True)
     rollouts = collect_evaluation_rollouts(experiment, config)
     print("Analyzing TEMM trajectories...", flush=True)
+    semantic_adapter = resolve_semantic_adapter(config, experiment)
     result, diagnostics = analyze_rollouts_with_diagnostics(
-        rollouts, experiment.group_map, config
+        rollouts, experiment.group_map, config, semantic_adapter
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -140,6 +142,7 @@ def run_temm_for_experiment(
             organizational_model=getattr(experiment, "organizational_model", None),
             figures=figures,
             figure_paths=figure_paths,
+            diagnostics=diagnostics,
         )
         if published:
             print("TEMM & MOISE+MARL section published to W&B.", flush=True)

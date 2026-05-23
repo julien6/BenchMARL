@@ -7,6 +7,11 @@
 from .analysis import analyze_rollouts, analyze_rollouts_with_diagnostics
 from .config import TEMMConfig
 from .runner import collect_evaluation_rollouts, run_temm_for_experiment, write_summary
+from .semantic import (
+    GenericSemanticAdapter,
+    OrbitalSemanticAdapter,
+    resolve_semantic_adapter,
+)
 from .trajectory import extract_trajectories
 from .types import (
     FitScores,
@@ -33,6 +38,9 @@ __all__ = [
     "TEMMConfig",
     "TEMMResult",
     "TEMMVisualizer",
+    "GenericSemanticAdapter",
+    "OrbitalSemanticAdapter",
+    "resolve_semantic_adapter",
     "run_temm_for_experiment",
     "write_summary",
 ]

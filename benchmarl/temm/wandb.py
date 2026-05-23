@@ -30,6 +30,7 @@ def publish_temm_to_wandb(
     organizational_model: Optional[Any] = None,
     figures: Optional[Mapping[str, Any]] = None,
     figure_paths: Optional[Mapping[str, Path]] = None,
+    diagnostics: Optional[Any] = None,
 ) -> bool:
     """Upload TEMM files and panels to a W&B run Charts section."""
 
@@ -76,6 +77,9 @@ def publish_temm_to_wandb(
             ),
             f"{WANDB_SECTION}/TEMM_obligations": _temm_norms_table(
                 wandb, result.obligations
+            ),
+            f"{WANDB_SECTION}/semantic_action_map": _semantic_action_map_table(
+                wandb, diagnostics
             ),
             f"{WANDB_SECTION}/TEMM_summary": wandb.Html(
                 _pre_html(summary_path.read_text())
@@ -246,11 +250,12 @@ def _temm_roles_table(wandb, result: TEMMResult):
             role.representativeness,
             role.medoid,
             _list_cell(role.representative_pattern),
+            _semantic_cell(role.representative_pattern_semantic),
         ]
         for role in result.roles
     ]
     if not rows:
-        rows = [["-", "-", 0, 0.0, 0.0, "-", "-"]]
+        rows = [["-", "-", 0, 0.0, 0.0, "-", "-", "-"]]
     return wandb.Table(
         columns=[
             "role",
@@ -260,6 +265,7 @@ def _temm_roles_table(wandb, result: TEMMResult):
             "representativeness",
             "medoid",
             "representative_pattern",
+            "representative_pattern_semantic",
         ],
         data=rows,
     )
@@ -275,12 +281,13 @@ def _temm_goals_table(wandb, result: TEMMResult):
             goal.medoid_episode,
             goal.medoid_time,
             _list_cell(goal.representative_plan),
+            _semantic_cell(goal.representative_plan_semantic),
             _list_cell([f"{value:.4f}" for value in goal.centroid[:12]]),
         ]
         for goal in result.goals
     ]
     if not rows:
-        rows = [["-", 0, 0.0, 0.0, -1, -1, "-", "-"]]
+        rows = [["-", 0, 0.0, 0.0, -1, -1, "-", "-", "-"]]
     return wandb.Table(
         columns=[
             "goal",
@@ -290,6 +297,7 @@ def _temm_goals_table(wandb, result: TEMMResult):
             "medoid_episode",
             "medoid_time",
             "representative_plan",
+            "representative_plan_semantic",
             "centroid_preview",
         ],
         data=rows,
@@ -333,6 +341,24 @@ def _temm_norms_table(wandb, norms):
     )
 
 
+def _semantic_action_map_table(wandb, diagnostics):
+    rows = []
+    if diagnostics is not None:
+        for item in getattr(diagnostics, "semantic_action_map", []):
+            rows.append(
+                [
+                    item.get("action_id", "-"),
+                    item.get("action_label", "-"),
+                    item.get("description", "-"),
+                ]
+            )
+    if not rows:
+        rows = [["-", "-", "-"]]
+    return wandb.Table(
+        columns=["action_id", "action_label", "description"], data=rows
+    )
+
+
 def _assignment_index(assignments: Mapping[str, str]) -> dict[str, list[str]]:
     indexed = {}
     for agent_name, item_name in assignments.items():
@@ -355,6 +381,17 @@ def _list_cell(values) -> str:
     if not values:
         return "-"
     return "\n".join(str(value) for value in values)
+
+
+def _semantic_cell(values) -> str:
+    rows = []
+    for item in values or []:
+        token = item.get("token", "-")
+        action = item.get("action_label", "-")
+        interpretation = item.get("interpretation", "-")
+        tags = ", ".join(str(value) for value in item.get("state_tags", [])) or "-"
+        rows.append(f"{token} | {action} | {tags} | {interpretation}")
+    return "\n".join(rows) if rows else "-"
 
 
 def _pre_html(text: str) -> str:

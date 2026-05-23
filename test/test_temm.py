@@ -12,6 +12,8 @@ from tensordict import TensorDict
 
 import benchmarl.temm.wandb as temm_wandb
 from benchmarl.temm import (
+    GenericSemanticAdapter,
+    OrbitalSemanticAdapter,
     TEMMConfig,
     TEMMVisualizer,
     TEMMResult,
@@ -19,6 +21,7 @@ from benchmarl.temm import (
     analyze_rollouts,
     extract_trajectories,
 )
+from benchmarl.mma import orbital
 from benchmarl.temm_analyze import main as temm_main
 
 GROUP_MAP = {"agents": ["agent_0", "agent_1"]}
@@ -138,6 +141,63 @@ def test_temm_result_json_roundtrip(tmp_path):
     loaded = TEMMResult.from_json(path)
 
     assert loaded.to_dict() == result.to_dict()
+
+
+def test_generic_semantic_adapter_preserves_unknown_discrete_action():
+    adapter = GenericSemanticAdapter()
+    description = adapter.describe_step(
+        torch.zeros(4), torch.tensor([42]), torch.zeros(4), "agent_0"
+    )
+
+    assert description["action_label"] == "act:42"
+    assert description["state_tags"] == []
+    assert description["transition_tags"] == []
+
+
+def test_orbital_semantic_adapter_maps_actions_and_state_tags():
+    adapter = OrbitalSemanticAdapter()
+    observation = torch.zeros(16)
+    next_observation = observation.clone()
+    observation[orbital.ENERGY] = orbital.LOW_ENERGY / 2
+    observation[orbital.SUNLIGHT] = 1.0
+    observation[orbital.GROUND_CONTACT] = 1.0
+    observation[orbital.KNOWN_NEARBY_TASKS] = 1.0
+
+    assert adapter.describe_step(
+        observation, torch.tensor([orbital.IDLE]), next_observation, "agent_0"
+    )["action_label"] == "idle"
+    assert adapter.describe_step(
+        observation, torch.tensor([orbital.PWR]), next_observation, "agent_0"
+    )["action_label"] == "power_save"
+    assert adapter.describe_step(
+        observation, torch.tensor([orbital.REL_GRN]), next_observation, "agent_0"
+    )["action_label"] == "relay_ground"
+    rel_sat = adapter.describe_step(
+        observation, torch.tensor([orbital.REL_SAT]), next_observation, "agent_0"
+    )
+
+    assert rel_sat["action_label"] == "relay_satellite"
+    assert "low_energy" in rel_sat["state_tags"]
+    assert "ground_contact" in rel_sat["state_tags"]
+    assert "known_nearby_task" in rel_sat["state_tags"]
+
+
+def test_temm_diagnostics_include_semantic_timelines_for_orbital_adapter():
+    _, diagnostics = analyze_rollouts_with_diagnostics(
+        [_rollout(True), _rollout(True)],
+        GROUP_MAP,
+        _config(success_quantile=0.0, semantic_adapter="orbital"),
+        OrbitalSemanticAdapter(),
+    )
+
+    timeline = next(iter(diagnostics.trajectory_timelines.values()))
+    assert diagnostics.semantic_adapter == "orbital"
+    assert diagnostics.semantic_action_map
+    assert "token" in timeline[0]
+    assert "action_label" in timeline[0]
+    assert "state_tags" in timeline[0]
+    assert "transition_tags" in timeline[0]
+    assert "interpretation" in timeline[0]
 
 
 def test_temm_cli_smoke_writes_result_and_summary(monkeypatch, tmp_path):

@@ -60,6 +60,12 @@ def main() -> None:
     parser.add_argument("--obligation-exclusivity-threshold", type=float, default=0.75)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
+        "--semantic-adapter",
+        choices=("auto", "none", "orbital"),
+        default="auto",
+        help="Semantic grounding used for TEMM trajectory tokens.",
+    )
+    parser.add_argument(
         "--wandb-section",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -82,6 +88,7 @@ def main() -> None:
         obligation_exclusivity_threshold=args.obligation_exclusivity_threshold,
         output_path=args.out,
         seed=args.seed,
+        semantic_adapter=args.semantic_adapter,
     )
 
     experiment = reload_experiment_for_temm(str(Path(args.checkpoint).resolve()))
