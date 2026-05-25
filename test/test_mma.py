@@ -300,10 +300,20 @@ def test_moise_marl_manual_policy_priorities():
     compromised[15] = 1.0
     assert tuple(role.allowed_actions(compromised, "sat_0")) == (6,)
 
+    jammed_low_energy = torch.zeros(20)
+    jammed_low_energy[0] = 0.2
+    jammed_low_energy[5] = 1.0
+    jammed_low_energy[17] = 1.0
+    assert tuple(role.allowed_actions(jammed_low_energy, "sat_0")) == (5,)
+
     ground_relay = torch.zeros(20)
     ground_relay[6] = 1.0
     ground_relay[9] = 0.2
     assert tuple(role.allowed_actions(ground_relay, "sat_0")) == (1,)
+
+    catalog_bootstrap = torch.zeros(20)
+    catalog_bootstrap[6] = 1.0
+    assert tuple(role.allowed_actions(catalog_bootstrap, "sat_0")) == (1,)
 
     observe = torch.zeros(20)
     observe[10] = 0.5

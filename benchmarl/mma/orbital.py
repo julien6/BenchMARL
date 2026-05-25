@@ -36,6 +36,7 @@ KNOWN_NEARBY_TASKS = 11
 KNOWN_NEARBY_TASK_PRIORITY = 12
 LOCAL_PC = 14
 COMPROMISED = 15
+JAMMED = 17
 
 LOW_ENERGY = 0.25
 CRITICAL_ENERGY = 0.15
@@ -215,34 +216,41 @@ def _pb_dcop_lite_policy(observation: Tensor, agent_name: str) -> tuple[int]:
 
 def _moise_marl_policy(observation: Tensor, agent_name: str) -> tuple[int]:
     """Manual MOISE-MARL policy adapted from the joint handcrafted controller."""
+    known_tasks = 1 if observation[KNOWN_NEARBY_TASKS] > 0.0 else 0
+    has_data = observation[BUFFERED_DATA] > BUFFERED_MISSION_DATA
+    can_observe = (
+        observation[KNOWN_NEARBY_TASKS] > 0.0
+        and observation[BUFFER_REMAINING] > 0.25
+        and observation[BUFFERED_DATA] < 0.85
+    )
+
     if observation[COMPROMISED] > 0.5:
         return (SCAN,)
 
-    if observation[ENERGY] < 0.20 and observation[SUNLIGHT] > 0.5:
-        return (PWR,)
-
-    if observation[GROUND_CONTACT] > 0.5:
-        if (
-            observation[BUFFERED_DATA] > BUFFERED_MISSION_DATA
-            or observation[KNOWN_NEARBY_TASKS] > 0.0
-        ):
-            return (REL_GRN,)
+    if observation[JAMMED] > 0.5:
+        if observation[ENERGY] < 0.25 and observation[SUNLIGHT] > 0.5:
+            return (PWR,)
         return (IDLE,)
 
-    if observation[BUFFERED_DATA] > BUFFERED_MISSION_DATA and (
+    if observation[GROUND_CONTACT] > 0.5 and has_data:
+        return (REL_GRN,)
+
+    if can_observe:
+        return (OBS,)
+
+    if observation[GROUND_CONTACT] > 0.5 and known_tasks == 0:
+        return (REL_GRN,)
+
+    if has_data and (
         observation[GROUND_ROUTE] > 0.0 or observation[LOCAL_DEGREE] > 0.0
     ):
         return (REL_SAT,)
 
-    if (
-        observation[BUFFERED_DATA] < 0.25
-        and observation[KNOWN_NEARBY_TASKS] > 0.0
-        and observation[BUFFER_REMAINING] > USEFUL_BUFFER_SPACE
-    ):
-        return (OBS,)
-
-    if observation[LOCAL_DEGREE] > 0.0 and observation[KNOWN_NEARBY_TASKS] > 0.0:
+    if observation[LOCAL_DEGREE] > 0.0 and known_tasks > 0:
         return (REL_SAT,)
+
+    if observation[ENERGY] < 0.20 and observation[SUNLIGHT] > 0.5:
+        return (PWR,)
 
     return (IDLE,)
 
