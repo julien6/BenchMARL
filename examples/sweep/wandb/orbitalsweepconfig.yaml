@@ -7,7 +7,7 @@ name: "pettingzoo-orbital-mappo-baselines"
 description: "Fixed provisional ORBITAL MAPPO config across learning and handcrafted baseline organizational models."
 
 method: grid
-run_cap: 7
+run_cap: 8
 
 metric:
   name: eval/reward/episode_reward_mean
@@ -47,6 +47,7 @@ parameters:
       - "orbital_rb_rule"
       - "orbital_rb_relay_heavy"
       - "orbital_pb_dcop_lite"
+      - "moise-marl"
 
   experiment.loggers:
     value: "[wandb]"

@@ -48,6 +48,7 @@ learnable action subset:
 | `orbital_rb_rule` | priority-first local observation, then relay, then energy fallback |
 | `orbital_rb_relay_heavy` | ground or satellite relay before observation, with weak energy fallback |
 | `orbital_pb_dcop_lite` | phase-scheduled observer/relay choices constrained by local energy, connectivity, buffer, and safety state |
+| `moise-marl` | single-role manual policy for all agents: scan, recharge, ground relay, satellite relay, observe, then idle |
 
 The article-oriented ids use the ORBITAL roles `orbital_observer_role`,
 `orbital_relay_role`, and `orbital_safety_guard_role`, with the mission goals

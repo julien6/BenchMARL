@@ -179,6 +179,7 @@ def test_goal_context_is_stateful_until_reset():
         "orbital_rb_rule",
         "orbital_rb_relay_heavy",
         "orbital_pb_dcop_lite",
+        "moise-marl",
     ],
 )
 def test_orbital_organizational_models_build_from_registry(model_id):
@@ -229,7 +230,7 @@ def test_article_orbital_baselines_split_roles_and_goals():
 
 @pytest.mark.parametrize(
     "model_id",
-    ["orbital_rb_rule", "orbital_rb_relay_heavy", "orbital_pb_dcop_lite"],
+    ["orbital_rb_rule", "orbital_rb_relay_heavy", "orbital_pb_dcop_lite", "moise-marl"],
 )
 def test_handcrafted_orbital_baselines_are_role_only_single_action_policies(model_id):
     group_map = {"sat": [f"sat_{index}" for index in range(6)]}
@@ -287,6 +288,27 @@ def test_handcrafted_orbital_policy_priorities():
     assert tuple(
         dcop_lite.role_for("sat_0").allowed_actions(recharge_observation, "sat_0")
     ) == (5,)
+
+
+def test_moise_marl_manual_policy_priorities():
+    group_map = {"sat": ["sat_0"]}
+    task = PettingZooTask.ORBITAL.get_from_yaml()
+    model = make_organizational_model("moise-marl", task, group_map)
+    role = model.role_for("sat_0")
+
+    compromised = torch.zeros(20)
+    compromised[15] = 1.0
+    assert tuple(role.allowed_actions(compromised, "sat_0")) == (6,)
+
+    ground_relay = torch.zeros(20)
+    ground_relay[6] = 1.0
+    ground_relay[9] = 0.2
+    assert tuple(role.allowed_actions(ground_relay, "sat_0")) == (1,)
+
+    observe = torch.zeros(20)
+    observe[10] = 0.5
+    observe[11] = 0.1
+    assert tuple(role.allowed_actions(observe, "sat_0")) == (0,)
 
 
 def test_unknown_organizational_model_id_is_explicit():

@@ -16,6 +16,7 @@ from .core import (
     register_organizational_model,
 )
 from .orbital import (
+    moise_marl,
     orbital_all,
     orbital_lb_action_only,
     orbital_lb_reward_only,
@@ -37,3 +38,4 @@ register_organizational_model("orbital_mma_full", orbital_mma_full)
 register_organizational_model("orbital_rb_rule", orbital_rb_rule)
 register_organizational_model("orbital_rb_relay_heavy", orbital_rb_relay_heavy)
 register_organizational_model("orbital_pb_dcop_lite", orbital_pb_dcop_lite)
+register_organizational_model("moise-marl", moise_marl)

@@ -213,6 +213,40 @@ def _pb_dcop_lite_policy(observation: Tensor, agent_name: str) -> tuple[int]:
     return (IDLE,)
 
 
+def _moise_marl_policy(observation: Tensor, agent_name: str) -> tuple[int]:
+    """Manual MOISE-MARL policy adapted from the joint handcrafted controller."""
+    if observation[COMPROMISED] > 0.5:
+        return (SCAN,)
+
+    if observation[ENERGY] < 0.20 and observation[SUNLIGHT] > 0.5:
+        return (PWR,)
+
+    if observation[GROUND_CONTACT] > 0.5:
+        if (
+            observation[BUFFERED_DATA] > BUFFERED_MISSION_DATA
+            or observation[KNOWN_NEARBY_TASKS] > 0.0
+        ):
+            return (REL_GRN,)
+        return (IDLE,)
+
+    if observation[BUFFERED_DATA] > BUFFERED_MISSION_DATA and (
+        observation[GROUND_ROUTE] > 0.0 or observation[LOCAL_DEGREE] > 0.0
+    ):
+        return (REL_SAT,)
+
+    if (
+        observation[BUFFERED_DATA] < 0.25
+        and observation[KNOWN_NEARBY_TASKS] > 0.0
+        and observation[BUFFER_REMAINING] > USEFUL_BUFFER_SPACE
+    ):
+        return (OBS,)
+
+    if observation[LOCAL_DEGREE] > 0.0 and observation[KNOWN_NEARBY_TASKS] > 0.0:
+        return (REL_SAT,)
+
+    return (IDLE,)
+
+
 def _ground_intake_goal(
     context: GoalContext, observation: Tensor, action: Tensor, agent_name: str
 ) -> float:
@@ -526,6 +560,19 @@ def orbital_pb_dcop_lite(
         "orbital_pb_dcop_lite_role",
         _pb_dcop_lite_policy,
         "Chooses one phase-scheduled observer or relay action with local constraints.",
+    )
+
+
+def moise_marl(
+    task: TaskClass, group_map: Mapping[str, Sequence[str]]
+) -> OrganizationalModel:
+    """Single-role manual MOISE-MARL baseline."""
+    return _handcrafted_role_model(
+        task,
+        group_map,
+        "moise_marl_role",
+        _moise_marl_policy,
+        "Chooses one action from the manual MOISE-MARL handcrafted policy.",
     )
 
 
