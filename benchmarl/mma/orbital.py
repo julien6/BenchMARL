@@ -6,13 +6,14 @@
 
 from __future__ import annotations
 
+import random
 from typing import Mapping, Sequence
 
 from torch import Tensor
 
 from benchmarl.environments.common import TaskClass
 
-from .core import GoalContext, OrganizationalModel, ScriptedGoal, ScriptedRole
+from .core import GoalContext, OrganizationalModel, Role, ScriptedGoal
 
 OBS = 0
 REL_GRN = 1
@@ -24,7 +25,6 @@ SCAN = 6
 IDLE = 7
 
 ENERGY = 0
-THETA = 2
 RADIUS = 3
 SUNLIGHT = 5
 GROUND_CONTACT = 6
@@ -33,18 +33,18 @@ LOCAL_DEGREE = 8
 BUFFERED_DATA = 9
 BUFFER_REMAINING = 10
 KNOWN_NEARBY_TASKS = 11
-KNOWN_NEARBY_TASK_PRIORITY = 12
 LOCAL_PC = 14
 COMPROMISED = 15
 JAMMED = 17
 
 LOW_ENERGY = 0.25
-CRITICAL_ENERGY = 0.15
 LOW_SAFETY_ENERGY = 0.20
 USEFUL_BUFFER_SPACE = 0.30
 BUFFERED_MISSION_DATA = 0.05
 DEBRIS_ALERT = 0.35
-HIGH_LOCAL_TASK_PRIORITY = 0.075
+PARTIAL_CONSTRAINT_HARDNESS = 0.30
+FULL_CONSTRAINT_HARDNESS = 1.00
+ORBITAL_ACTIONS = (OBS, REL_GRN, REL_SAT, DN, UP, PWR, SCAN, IDLE)
 
 
 def _check_orbital(task: TaskClass) -> None:
@@ -54,168 +54,77 @@ def _check_orbital(task: TaskClass) -> None:
         )
 
 
-def _safe_fallback(observation: Tensor) -> set[int]:
-    allowed = {IDLE}
-    if observation[ENERGY] < LOW_ENERGY and observation[SUNLIGHT] > 0.5:
-        allowed.add(PWR)
-    if observation[COMPROMISED] > 0.5:
-        allowed.add(SCAN)
-    if observation[LOCAL_PC] > DEBRIS_ALERT:
-        allowed.update((DN, UP))
-    return allowed
+class ConstraintHardnessRole(Role):
+    """Role that sometimes yields control back to the neural policy."""
+
+    def __init__(self, rule, hardness: float, description: str = ""):
+        self.rule = rule
+        self.hardness = hardness
+        self.description = description
+
+    def allowed_actions(self, observation: Tensor, agent_name: str) -> Sequence[int]:
+        if self.hardness < FULL_CONSTRAINT_HARDNESS and random.random() > self.hardness:
+            return ORBITAL_ACTIONS
+        return (int(self.rule(observation, agent_name)),)
 
 
-def _acquisition_actions(observation: Tensor, agent_name: str) -> set[int]:
-    allowed = _safe_fallback(observation)
-    if observation[GROUND_CONTACT] > 0.5:
-        allowed.add(REL_GRN)
-    if (
-        observation[KNOWN_NEARBY_TASKS] > 0.0
-        and observation[BUFFER_REMAINING] > USEFUL_BUFFER_SPACE
-    ):
-        allowed.add(OBS)
-    if observation[KNOWN_NEARBY_TASKS] > 0.0 and observation[LOCAL_DEGREE] > 0.0:
-        allowed.add(REL_SAT)
-    return allowed
+def _known_tasks(observation: Tensor) -> int:
+    return 1 if observation[KNOWN_NEARBY_TASKS] > 0.0 else 0
 
 
-def _relay_actions(observation: Tensor, agent_name: str) -> set[int]:
-    allowed = _safe_fallback(observation)
-    if observation[GROUND_CONTACT] > 0.5:
-        allowed.add(REL_GRN)
-    if observation[BUFFERED_DATA] > BUFFERED_MISSION_DATA and (
-        observation[GROUND_ROUTE] > 0.0 or observation[LOCAL_DEGREE] > 0.0
-    ):
-        allowed.add(REL_SAT)
-    if observation[KNOWN_NEARBY_TASKS] > 0.0 and observation[LOCAL_DEGREE] > 0.0:
-        allowed.add(REL_SAT)
-    return allowed
-
-
-def _safety_actions(observation: Tensor, agent_name: str) -> set[int]:
-    allowed = _safe_fallback(observation)
-    allowed.update((PWR, SCAN))
-    return allowed
-
-
-def _has_buffered_data(observation: Tensor) -> bool:
+def _has_data(observation: Tensor) -> bool:
     return bool(observation[BUFFERED_DATA] > BUFFERED_MISSION_DATA)
 
 
-def _can_observe_local_task(observation: Tensor) -> bool:
+def _can_observe(observation: Tensor) -> bool:
     return bool(
         observation[KNOWN_NEARBY_TASKS] > 0.0
-        and observation[BUFFER_REMAINING] > USEFUL_BUFFER_SPACE
+        and observation[BUFFER_REMAINING] > 0.25
+        and observation[BUFFERED_DATA] < 0.85
     )
 
 
-def _has_relay_neighbor(observation: Tensor) -> bool:
+def _has_relay_path(observation: Tensor) -> bool:
     return bool(observation[GROUND_ROUTE] > 0.0 or observation[LOCAL_DEGREE] > 0.0)
 
 
-def _can_direct_relay(observation: Tensor) -> bool:
-    return bool(observation[GROUND_CONTACT] > 0.5)
+def _acquirer_action(observation: Tensor, agent_name: str) -> int:
+    """Acquire catalog knowledge or observe known nearby tasks."""
+    if _can_observe(observation):
+        return OBS
+    if observation[GROUND_CONTACT] > 0.5 and _known_tasks(observation) == 0:
+        return REL_GRN
+    return IDLE
 
 
-def _local_high_priority_task(observation: Tensor) -> bool:
-    return bool(
-        _can_observe_local_task(observation)
-        and observation[KNOWN_NEARBY_TASK_PRIORITY] >= HIGH_LOCAL_TASK_PRIORITY
-    )
+def _deliverer_action(observation: Tensor, agent_name: str) -> int:
+    """Deliver buffered data directly or through peer relays."""
+    if observation[GROUND_CONTACT] > 0.5 and _has_data(observation):
+        return REL_GRN
+    if _has_data(observation) and _has_relay_path(observation):
+        return REL_SAT
+    if observation[LOCAL_DEGREE] > 0.0 and _known_tasks(observation) > 0:
+        return REL_SAT
+    return IDLE
 
 
-def _lowpower_if_recharging(observation: Tensor, threshold: float) -> int | None:
-    if observation[ENERGY] < threshold and observation[SUNLIGHT] > 0.5:
-        return PWR
-    return None
-
-
-def _deterministic_safety_action(observation: Tensor) -> int | None:
-    lowpower_action = _lowpower_if_recharging(observation, LOW_SAFETY_ENERGY)
-    if lowpower_action is not None:
-        return lowpower_action
+def _stabilizer_action(observation: Tensor, agent_name: str) -> int:
+    """Stabilize cyber, energy, and local orbital safety state."""
     if observation[COMPROMISED] > 0.5:
         return SCAN
+    if observation[JAMMED] > 0.5:
+        if observation[ENERGY] < 0.25 and observation[SUNLIGHT] > 0.5:
+            return PWR
+        return IDLE
+    if observation[ENERGY] < LOW_SAFETY_ENERGY and observation[SUNLIGHT] > 0.5:
+        return PWR
     if observation[LOCAL_PC] > DEBRIS_ALERT:
         return UP if observation[RADIUS] < 0.5 else DN
-    return None
+    return IDLE
 
 
-def _rb_rule_policy(observation: Tensor, agent_name: str) -> tuple[int]:
-    """Greedy local acquisition, then data relay, then simple energy fallback."""
-    if _local_high_priority_task(observation):
-        return (OBS,)
-    if _has_buffered_data(observation):
-        if _can_direct_relay(observation):
-            return (REL_GRN,)
-        if _has_relay_neighbor(observation):
-            return (REL_SAT,)
-    if _can_observe_local_task(observation):
-        return (OBS,)
-    lowpower_action = _lowpower_if_recharging(observation, LOW_ENERGY)
-    return (IDLE if lowpower_action is None else lowpower_action,)
-
-
-def _rb_relay_heavy_policy(observation: Tensor, agent_name: str) -> tuple[int]:
-    """Delivery-first rule with weak safety handling."""
-    if _can_direct_relay(observation):
-        return (REL_GRN,)
-    if _has_relay_neighbor(observation) and (
-        _has_buffered_data(observation) or observation[KNOWN_NEARBY_TASKS] > 0.0
-    ):
-        return (REL_SAT,)
-    if _can_observe_local_task(observation):
-        return (OBS,)
-    lowpower_action = _lowpower_if_recharging(observation, CRITICAL_ENERGY)
-    return (IDLE if lowpower_action is None else lowpower_action,)
-
-
-def _agent_index(agent_name: str) -> int:
-    try:
-        return int(agent_name.rsplit("_", 1)[1])
-    except (IndexError, ValueError):
-        return 0
-
-
-def _dcop_lite_prefers_relay(observation: Tensor, agent_name: str) -> bool:
-    # ORBITAL does not expose a scheduler clock to roles. Orbit phase is a
-    # periodic local proxy for rotating observer/relay allocations.
-    phase_bucket = min(3, max(0, int(float(observation[THETA]) * 4.0)))
-    return (_agent_index(agent_name) + phase_bucket) % 3 == 0
-
-
-def _pb_dcop_lite_policy(observation: Tensor, agent_name: str) -> tuple[int]:
-    """Phase-scheduled observer/relay heuristic constrained by local state."""
-    safety_action = _deterministic_safety_action(observation)
-    if safety_action is not None:
-        return (safety_action,)
-
-    relay_ready = _has_buffered_data(observation)
-    relay_preferred = _dcop_lite_prefers_relay(observation, agent_name)
-    if relay_preferred:
-        if _can_direct_relay(observation):
-            return (REL_GRN,)
-        if relay_ready and _has_relay_neighbor(observation):
-            return (REL_SAT,)
-        if _can_observe_local_task(observation):
-            return (OBS,)
-    else:
-        if _can_observe_local_task(observation):
-            return (OBS,)
-        if relay_ready and _can_direct_relay(observation):
-            return (REL_GRN,)
-        if relay_ready and _has_relay_neighbor(observation):
-            return (REL_SAT,)
-
-    if _can_direct_relay(observation):
-        return (REL_GRN,)
-    if observation[KNOWN_NEARBY_TASKS] > 0.0 and observation[LOCAL_DEGREE] > 0.0:
-        return (REL_SAT,)
-    return (IDLE,)
-
-
-def _moise_marl_policy(observation: Tensor, agent_name: str) -> tuple[int]:
-    """Manual MOISE-MARL policy adapted from the joint handcrafted controller."""
+def _handcrafted_full_action(observation: Tensor, agent_name: str) -> int:
+    """Coordinate catalog intake, observations, delivery, and peer relays."""
     known_tasks = 1 if observation[KNOWN_NEARBY_TASKS] > 0.0 else 0
     has_data = observation[BUFFERED_DATA] > BUFFERED_MISSION_DATA
     can_observe = (
@@ -225,179 +134,124 @@ def _moise_marl_policy(observation: Tensor, agent_name: str) -> tuple[int]:
     )
 
     if observation[COMPROMISED] > 0.5:
-        return (SCAN,)
+        return SCAN
 
     if observation[JAMMED] > 0.5:
         if observation[ENERGY] < 0.25 and observation[SUNLIGHT] > 0.5:
-            return (PWR,)
-        return (IDLE,)
+            return PWR
+        return IDLE
 
     if observation[GROUND_CONTACT] > 0.5 and has_data:
-        return (REL_GRN,)
+        return REL_GRN
 
     if can_observe:
-        return (OBS,)
+        return OBS
 
     if observation[GROUND_CONTACT] > 0.5 and known_tasks == 0:
-        return (REL_GRN,)
+        return REL_GRN
 
     if has_data and (
         observation[GROUND_ROUTE] > 0.0 or observation[LOCAL_DEGREE] > 0.0
     ):
-        return (REL_SAT,)
+        return REL_SAT
 
     if observation[LOCAL_DEGREE] > 0.0 and known_tasks > 0:
-        return (REL_SAT,)
+        return REL_SAT
 
     if observation[ENERGY] < 0.20 and observation[SUNLIGHT] > 0.5:
-        return (PWR,)
+        return PWR
 
-    return (IDLE,)
+    return IDLE
 
 
-def _ground_intake_goal(
+def _role_logic_goal(
+    context: GoalContext,
+    observation: Tensor,
+    action: Tensor,
+    agent_name: str,
+    rule,
+    state_key: str,
+) -> float:
+    expected_action = int(rule(observation, agent_name))
+    if expected_action == IDLE:
+        return 0.0
+    if int(action.item()) == expected_action:
+        context.state[state_key] = context.state.get(state_key, 0) + 1
+        return 1.0
+    return -0.25
+
+
+def _acquisition_goal(
     context: GoalContext, observation: Tensor, action: Tensor, agent_name: str
 ) -> float:
-    useful_contact = observation[GROUND_CONTACT] > 0.5 and (
-        observation[KNOWN_NEARBY_TASKS] > 0.0
-        or observation[BUFFERED_DATA] > BUFFERED_MISSION_DATA
+    return _role_logic_goal(
+        context, observation, action, agent_name, _acquirer_action, "acquisitions"
     )
-    if useful_contact and int(action.item()) == REL_GRN:
-        context.state["ground_relays"] = context.state.get("ground_relays", 0) + 1
-        return 1.0
-    return 0.0
-
-
-def _observation_goal(
-    context: GoalContext, observation: Tensor, action: Tensor, agent_name: str
-) -> float:
-    useful_observation = (
-        observation[KNOWN_NEARBY_TASKS] > 0.0
-        and observation[BUFFER_REMAINING] > USEFUL_BUFFER_SPACE
-    )
-    if useful_observation and int(action.item()) == OBS:
-        context.state["observations"] = context.state.get("observations", 0) + 1
-        return 1.0
-    return 0.0
 
 
 def _delivery_goal(
     context: GoalContext, observation: Tensor, action: Tensor, agent_name: str
 ) -> float:
-    if observation[BUFFERED_DATA] <= BUFFERED_MISSION_DATA:
-        return 0.0
-    act = int(action.item())
-    direct_delivery = observation[GROUND_CONTACT] > 0.5 and act == REL_GRN
-    route_delivery = (
-        observation[GROUND_ROUTE] > 0.0 or observation[LOCAL_DEGREE] > 0.0
-    ) and act == REL_SAT
-    if direct_delivery or route_delivery:
-        context.state["relays"] = context.state.get("relays", 0) + 1
-        return 1.0
-    return 0.0
+    return _role_logic_goal(
+        context, observation, action, agent_name, _deliverer_action, "deliveries"
+    )
 
 
-def _task_acquisition_goal(
+def _stability_goal(
     context: GoalContext, observation: Tensor, action: Tensor, agent_name: str
 ) -> float:
-    act = int(action.item())
-    ground_catalog_intake = (
-        act == REL_GRN
-        and observation[GROUND_CONTACT] > 0.5
-        and observation[BUFFERED_DATA] <= BUFFERED_MISSION_DATA
+    return _role_logic_goal(
+        context, observation, action, agent_name, _stabilizer_action, "stabilizations"
     )
-    useful_observation = (
-        act == OBS
-        and observation[KNOWN_NEARBY_TASKS] > 0.0
-        and observation[BUFFER_REMAINING] > USEFUL_BUFFER_SPACE
-    )
-    if ground_catalog_intake or useful_observation:
-        context.state["acquisition_steps"] = (
-            context.state.get("acquisition_steps", 0) + 1
-        )
-        return 1.0
-    return 0.0
 
 
-def _fleet_resilience_goal(
-    context: GoalContext, observation: Tensor, action: Tensor, agent_name: str
-) -> float:
-    act = int(action.item())
-    cyber_response = act == SCAN and observation[COMPROMISED] > 0.5
-    energy_response = (
-        act == PWR
-        and observation[ENERGY] < LOW_SAFETY_ENERGY
-        and observation[SUNLIGHT] > 0.5
-    )
-    debris_response = act in (DN, UP) and observation[LOCAL_PC] > DEBRIS_ALERT
-    if cyber_response or energy_response or debris_response:
-        context.state["resilience_steps"] = context.state.get("resilience_steps", 0) + 1
-        return 1.0
-    return 0.0
-
-
-def _orbital_specs() -> tuple[dict, dict]:
-    roles = {
-        "orbital_acquisition_role": ScriptedRole(
-            _acquisition_actions,
-            "Allows data acquisition and useful ground intake when local state permits.",
+def _role_specs(
+    acquirer_hardness: float,
+    deliverer_hardness: float,
+    stabilizer_hardness: float,
+) -> dict[str, Role]:
+    return {
+        "acquirer": ConstraintHardnessRole(
+            _acquirer_action,
+            acquirer_hardness,
+            "Acquires task catalog entries and observes known nearby tasks.",
         ),
-        "orbital_relay_role": ScriptedRole(
-            _relay_actions,
-            "Allows buffered data to reach ground or a relevant satellite route.",
+        "deliverer": ConstraintHardnessRole(
+            _deliverer_action,
+            deliverer_hardness,
+            "Delivers buffered data to ground or through peer relays.",
         ),
-        "orbital_safety_role": ScriptedRole(
-            _safety_actions,
-            "Keeps safety actions available for energy, cyber, and orbital stress.",
+        "stabilizer": ConstraintHardnessRole(
+            _stabilizer_action,
+            stabilizer_hardness,
+            "Handles cyber, energy, and local orbital safety responses.",
         ),
     }
-    goals = {
-        "orbital_ground_intake_goal": ScriptedGoal(
-            _ground_intake_goal,
-            "Rewards use of a relevant ground contact through REL_GRN.",
+
+
+def _partial_roles() -> dict[str, Role]:
+    return _role_specs(
+        PARTIAL_CONSTRAINT_HARDNESS,
+        PARTIAL_CONSTRAINT_HARDNESS,
+        PARTIAL_CONSTRAINT_HARDNESS,
+    )
+
+
+def _goal_specs() -> dict[str, ScriptedGoal]:
+    return {
+        "acquirer_goal": ScriptedGoal(
+            _acquisition_goal,
+            "Rewards acquirer-compatible catalog intake and observation decisions.",
         ),
-        "orbital_observation_goal": ScriptedGoal(
-            _observation_goal,
-            "Rewards OBS when a nearby known task and buffer space make it useful.",
-        ),
-        "orbital_delivery_goal": ScriptedGoal(
+        "deliverer_goal": ScriptedGoal(
             _delivery_goal,
-            "Rewards direct or routed delivery of data already in the buffer.",
+            "Rewards deliverer-compatible ground and satellite relay decisions.",
+        ),
+        "stabilizer_goal": ScriptedGoal(
+            _stability_goal,
+            "Rewards stabilizer-compatible cyber, energy, and debris responses.",
         ),
     }
-    return roles, goals
-
-
-def _article_specs() -> tuple[dict, dict]:
-    roles = {
-        "orbital_observer_role": ScriptedRole(
-            _acquisition_actions,
-            "Prioritizes catalog intake and observation when acquisition is feasible.",
-        ),
-        "orbital_relay_role": ScriptedRole(
-            _relay_actions,
-            "Prioritizes useful ground and satellite relays for mission continuity.",
-        ),
-        "orbital_safety_guard_role": ScriptedRole(
-            _safety_actions,
-            "Prioritizes low-power, cyber-scan, and debris mitigation actions.",
-        ),
-    }
-    goals = {
-        "orbital_task_acquisition_goal": ScriptedGoal(
-            _task_acquisition_goal,
-            "Rewards ground catalog intake and feasible observation of known tasks.",
-        ),
-        "orbital_data_delivery_goal": ScriptedGoal(
-            _delivery_goal,
-            "Rewards direct or routed delivery of data already in the buffer.",
-        ),
-        "orbital_fleet_resilience_goal": ScriptedGoal(
-            _fleet_resilience_goal,
-            "Rewards energy, cyber, and debris responses when the fleet is stressed.",
-        ),
-    }
-    return roles, goals
 
 
 def _orbital_agents(group_map: Mapping[str, Sequence[str]]) -> list[str]:
@@ -413,58 +267,7 @@ def _orbital_agents(group_map: Mapping[str, Sequence[str]]) -> list[str]:
     return sorted(group_map["sat"], key=sat_index)
 
 
-def _role_goals(role_name: str) -> list[str]:
-    if role_name == "orbital_acquisition_role":
-        return ["orbital_ground_intake_goal", "orbital_observation_goal"]
-    if role_name == "orbital_relay_role":
-        return ["orbital_delivery_goal"]
-    return []
-
-
-def _article_role_goals(role_name: str) -> list[str]:
-    if role_name == "orbital_observer_role":
-        return ["orbital_task_acquisition_goal"]
-    if role_name == "orbital_relay_role":
-        return ["orbital_data_delivery_goal"]
-    if role_name == "orbital_safety_guard_role":
-        return ["orbital_fleet_resilience_goal"]
-    return []
-
-
-def orbital_none(
-    task: TaskClass, group_map: Mapping[str, Sequence[str]]
-) -> OrganizationalModel:
-    _check_orbital(task)
-    _orbital_agents(group_map)
-    return OrganizationalModel()
-
-
-def _orbital_assigned(
-    task: TaskClass,
-    group_map: Mapping[str, Sequence[str]],
-    agents: Sequence[str],
-) -> OrganizationalModel:
-    _check_orbital(task)
-    roles, goals = _orbital_specs()
-    role_names = tuple(roles)
-    role_assignments = {
-        agent_name: role_names[index % len(role_names)]
-        for index, agent_name in enumerate(agents)
-    }
-    goal_assignments = {
-        agent_name: _role_goals(role_name)
-        for agent_name, role_name in role_assignments.items()
-        if _role_goals(role_name)
-    }
-    return OrganizationalModel(
-        roles=roles,
-        goals=goals,
-        role_assignments=role_assignments,
-        goal_assignments=goal_assignments,
-    )
-
-
-def _article_role_assignments(agents: Sequence[str], roles: Mapping[str, object]):
+def _role_assignments(agents: Sequence[str], roles: Mapping[str, object]):
     role_names = tuple(roles)
     return {
         agent_name: role_names[index % len(role_names)]
@@ -472,127 +275,139 @@ def _article_role_assignments(agents: Sequence[str], roles: Mapping[str, object]
     }
 
 
-def orbital_lb_reward_only(
-    task: TaskClass, group_map: Mapping[str, Sequence[str]]
-) -> OrganizationalModel:
-    """Learning baseline with ORBITAL mission shaping and free actions."""
-    _check_orbital(task)
-    agents = _orbital_agents(group_map)
-    _, goals = _article_specs()
-    return OrganizationalModel(
-        goals=goals,
-        goal_assignments={agent_name: tuple(goals) for agent_name in agents},
-    )
+def _all_goal_assignments(agents: Sequence[str], goals: Mapping[str, object]):
+    return {agent_name: tuple(goals) for agent_name in agents}
 
 
-def orbital_lb_action_only(
+def handcrafted(
     task: TaskClass, group_map: Mapping[str, Sequence[str]]
 ) -> OrganizationalModel:
-    """Learning baseline with ORBITAL action masks and no mission shaping."""
+    """Fully scripted handcrafted baseline."""
     _check_orbital(task)
     agents = _orbital_agents(group_map)
-    roles, _ = _article_specs()
+    roles = {
+        "handcrafted_full": ConstraintHardnessRole(
+            _handcrafted_full_action,
+            FULL_CONSTRAINT_HARDNESS,
+            "Fully constrains agents to the handcrafted ORBITAL policy.",
+        )
+    }
     return OrganizationalModel(
         roles=roles,
-        role_assignments=_article_role_assignments(agents, roles),
+        role_assignments={agent_name: "handcrafted_full" for agent_name in agents},
     )
 
 
-def orbital_mma_full(
+def lb_unconstrained(
     task: TaskClass, group_map: Mapping[str, Sequence[str]]
 ) -> OrganizationalModel:
-    """ORBITAL role-action and mission-goal MMA model."""
+    _check_orbital(task)
+    _orbital_agents(group_map)
+    return OrganizationalModel()
+
+
+def lb_moise_marl(
+    task: TaskClass, group_map: Mapping[str, Sequence[str]]
+) -> OrganizationalModel:
+    """MOISE+MARL baseline with partial roles and reward-shaping goals."""
     _check_orbital(task)
     agents = _orbital_agents(group_map)
-    roles, goals = _article_specs()
-    role_assignments = _article_role_assignments(agents, roles)
+    roles = _partial_roles()
+    goals = _goal_specs()
     return OrganizationalModel(
         roles=roles,
         goals=goals,
-        role_assignments=role_assignments,
-        goal_assignments={
-            agent_name: _article_role_goals(role_name)
-            for agent_name, role_name in role_assignments.items()
-        },
+        role_assignments=_role_assignments(agents, roles),
+        goal_assignments=_all_goal_assignments(agents, goals),
     )
 
 
-def _handcrafted_role_model(
+def lb_action_only(
+    task: TaskClass, group_map: Mapping[str, Sequence[str]]
+) -> OrganizationalModel:
+    """Learning baseline with partial role shielding and no reward shaping."""
+    _check_orbital(task)
+    agents = _orbital_agents(group_map)
+    roles = _partial_roles()
+    return OrganizationalModel(
+        roles=roles,
+        role_assignments=_role_assignments(agents, roles),
+    )
+
+
+def lb_reward_only(
+    task: TaskClass, group_map: Mapping[str, Sequence[str]]
+) -> OrganizationalModel:
+    """Learning baseline with reward shaping and unconstrained actions."""
+    _check_orbital(task)
+    agents = _orbital_agents(group_map)
+    goals = _goal_specs()
+    return OrganizationalModel(
+        goals=goals,
+        goal_assignments=_all_goal_assignments(agents, goals),
+    )
+
+
+def _mixed_role_baseline(
     task: TaskClass,
     group_map: Mapping[str, Sequence[str]],
-    role_name: str,
-    rule,
-    description: str,
+    acquirer_hardness: float,
+    deliverer_hardness: float,
+    stabilizer_hardness: float,
 ) -> OrganizationalModel:
     _check_orbital(task)
     agents = _orbital_agents(group_map)
+    roles = _role_specs(acquirer_hardness, deliverer_hardness, stabilizer_hardness)
     return OrganizationalModel(
-        roles={role_name: ScriptedRole(rule, description)},
-        role_assignments={agent_name: role_name for agent_name in agents},
+        roles=roles,
+        role_assignments=_role_assignments(agents, roles),
     )
 
 
-def orbital_rb_rule(
+def rb_deliverer(
     task: TaskClass, group_map: Mapping[str, Sequence[str]]
 ) -> OrganizationalModel:
-    """Rule baseline with priority-first local acquisition and relay fallback."""
-    return _handcrafted_role_model(
-        task,
-        group_map,
-        "orbital_rb_rule_role",
-        _rb_rule_policy,
-        "Chooses one priority-first handcrafted action from local ORBITAL state.",
+    """Role baseline with a fully constrained deliverer role."""
+    return _mixed_role_baseline(
+        task=task,
+        group_map=group_map,
+        acquirer_hardness=PARTIAL_CONSTRAINT_HARDNESS,
+        deliverer_hardness=FULL_CONSTRAINT_HARDNESS,
+        stabilizer_hardness=PARTIAL_CONSTRAINT_HARDNESS,
     )
 
 
-def orbital_rb_relay_heavy(
+def rb_dcop_like(
     task: TaskClass, group_map: Mapping[str, Sequence[str]]
 ) -> OrganizationalModel:
-    """Rule baseline that prioritizes relay continuity over acquisition."""
-    return _handcrafted_role_model(
-        task,
-        group_map,
-        "orbital_rb_relay_heavy_role",
-        _rb_relay_heavy_policy,
-        "Chooses one delivery-first handcrafted action from local ORBITAL state.",
+    """Role baseline with fully constrained acquirer and deliverer roles."""
+    return _mixed_role_baseline(
+        task=task,
+        group_map=group_map,
+        acquirer_hardness=FULL_CONSTRAINT_HARDNESS,
+        deliverer_hardness=FULL_CONSTRAINT_HARDNESS,
+        stabilizer_hardness=PARTIAL_CONSTRAINT_HARDNESS,
     )
 
 
-def orbital_pb_dcop_lite(
+def rb_acquirer(
     task: TaskClass, group_map: Mapping[str, Sequence[str]]
 ) -> OrganizationalModel:
-    """Planning-inspired baseline with scheduled local observer/relay choices."""
-    return _handcrafted_role_model(
-        task,
-        group_map,
-        "orbital_pb_dcop_lite_role",
-        _pb_dcop_lite_policy,
-        "Chooses one phase-scheduled observer or relay action with local constraints.",
+    """Role baseline with a fully constrained acquirer role."""
+    return _mixed_role_baseline(
+        task=task,
+        group_map=group_map,
+        acquirer_hardness=FULL_CONSTRAINT_HARDNESS,
+        deliverer_hardness=PARTIAL_CONSTRAINT_HARDNESS,
+        stabilizer_hardness=PARTIAL_CONSTRAINT_HARDNESS,
     )
 
 
-def moise_marl(
-    task: TaskClass, group_map: Mapping[str, Sequence[str]]
-) -> OrganizationalModel:
-    """Single-role manual MOISE-MARL baseline."""
-    return _handcrafted_role_model(
-        task,
-        group_map,
-        "moise_marl_role",
-        _moise_marl_policy,
-        "Chooses one action from the manual MOISE-MARL handcrafted policy.",
-    )
-
-
-def orbital_partial(
-    task: TaskClass, group_map: Mapping[str, Sequence[str]]
-) -> OrganizationalModel:
-    agents = _orbital_agents(group_map)
-    n_assigned = max(1, (len(agents) + 1) // 2)
-    return _orbital_assigned(task, group_map, agents[:n_assigned])
-
-
-def orbital_all(
-    task: TaskClass, group_map: Mapping[str, Sequence[str]]
-) -> OrganizationalModel:
-    return _orbital_assigned(task, group_map, _orbital_agents(group_map))
+# Compatibility aliases for configs produced before the baseline rename.
+orbital_none = lb_unconstrained
+orbital_lb_reward_only = lb_reward_only
+orbital_lb_action_only = lb_action_only
+orbital_mma_full = lb_moise_marl
+orbital_all = lb_moise_marl
+orbital_partial = lb_action_only
+moise_marl = handcrafted

@@ -40,7 +40,7 @@ class TestOrbital:
         mlp_sequence_config,
     ):
         experiment_config.render = False
-        experiment_config.organizational_model = "orbital_all"
+        experiment_config.organizational_model = "lb_moise_marl"
         experiment = Experiment(
             algorithm_config=MappoConfig.get_from_yaml(),
             model_config=mlp_sequence_config,

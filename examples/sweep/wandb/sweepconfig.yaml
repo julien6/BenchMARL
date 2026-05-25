@@ -43,7 +43,7 @@ parameters:
     value: true
 
   "++experiment.organizational_model":
-    value: "orbital_none"
+    value: "lb_unconstrained"
 
   experiment.loggers:
     value: "[wandb]"

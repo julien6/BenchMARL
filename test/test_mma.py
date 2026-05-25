@@ -170,16 +170,14 @@ def test_goal_context_is_stateful_until_reset():
 @pytest.mark.parametrize(
     "model_id",
     [
-        "orbital_none",
-        "orbital_partial",
-        "orbital_all",
-        "orbital_lb_reward_only",
-        "orbital_lb_action_only",
-        "orbital_mma_full",
-        "orbital_rb_rule",
-        "orbital_rb_relay_heavy",
-        "orbital_pb_dcop_lite",
-        "moise-marl",
+        "handcrafted",
+        "lb_unconstrained",
+        "lb_moise_marl",
+        "lb_action_only",
+        "lb_reward_only",
+        "rb_deliverer",
+        "rb_dcop_like",
+        "rb_acquirer",
     ],
 )
 def test_orbital_organizational_models_build_from_registry(model_id):
@@ -192,50 +190,55 @@ def test_orbital_organizational_models_build_from_registry(model_id):
     assert isinstance(model, OrganizationalModel)
 
 
-def test_article_orbital_baselines_split_roles_and_goals():
+def test_orbital_baselines_split_roles_and_goals():
     group_map = {"sat": [f"sat_{index}" for index in range(6)]}
     task = PettingZooTask.ORBITAL.get_from_yaml()
+    expected_roles = {"acquirer", "deliverer", "stabilizer"}
+    expected_goals = {"acquirer_goal", "deliverer_goal", "stabilizer_goal"}
 
     reward_only = make_organizational_model(
-        "orbital_lb_reward_only", task=task, group_map=group_map
+        "lb_reward_only", task=task, group_map=group_map
     )
     action_only = make_organizational_model(
-        "orbital_lb_action_only", task=task, group_map=group_map
+        "lb_action_only", task=task, group_map=group_map
     )
-    full = make_organizational_model("orbital_mma_full", task=task, group_map=group_map)
+    full = make_organizational_model("lb_moise_marl", task=task, group_map=group_map)
 
     assert not reward_only.roles
-    assert set(reward_only.goals) == {
-        "orbital_task_acquisition_goal",
-        "orbital_data_delivery_goal",
-        "orbital_fleet_resilience_goal",
-    }
+    assert set(reward_only.goals) == expected_goals
     assert set(reward_only.goal_assignments) == set(group_map["sat"])
 
-    assert set(action_only.roles) == {
-        "orbital_observer_role",
-        "orbital_relay_role",
-        "orbital_safety_guard_role",
-    }
+    assert set(action_only.roles) == expected_roles
     assert set(action_only.role_assignments) == set(group_map["sat"])
     assert not action_only.goals
 
-    assert full.role_assignments["sat_0"] == "orbital_observer_role"
-    assert full.role_assignments["sat_1"] == "orbital_relay_role"
-    assert full.role_assignments["sat_2"] == "orbital_safety_guard_role"
-    assert full.goal_assignments["sat_0"] == ["orbital_task_acquisition_goal"]
-    assert full.goal_assignments["sat_1"] == ["orbital_data_delivery_goal"]
-    assert full.goal_assignments["sat_2"] == ["orbital_fleet_resilience_goal"]
+    assert full.role_assignments["sat_0"] == "acquirer"
+    assert full.role_assignments["sat_1"] == "deliverer"
+    assert full.role_assignments["sat_2"] == "stabilizer"
+    assert set(full.goal_assignments["sat_0"]) == expected_goals
+
+    deliverer_bias = make_organizational_model(
+        "rb_deliverer", task=task, group_map=group_map
+    )
+    dcop_like = make_organizational_model(
+        "rb_dcop_like", task=task, group_map=group_map
+    )
+    acquirer_bias = make_organizational_model(
+        "rb_acquirer", task=task, group_map=group_map
+    )
+    assert deliverer_bias.roles["deliverer"].hardness == 1.0
+    assert deliverer_bias.roles["acquirer"].hardness == 0.3
+    assert dcop_like.roles["acquirer"].hardness == 1.0
+    assert dcop_like.roles["deliverer"].hardness == 1.0
+    assert acquirer_bias.roles["acquirer"].hardness == 1.0
 
 
-@pytest.mark.parametrize(
-    "model_id",
-    ["orbital_rb_rule", "orbital_rb_relay_heavy", "orbital_pb_dcop_lite", "moise-marl"],
-)
-def test_handcrafted_orbital_baselines_are_role_only_single_action_policies(model_id):
+def test_handcrafted_orbital_baseline_is_role_only_single_action_policy():
     group_map = {"sat": [f"sat_{index}" for index in range(6)]}
     model = make_organizational_model(
-        model_id, task=PettingZooTask.ORBITAL.get_from_yaml(), group_map=group_map
+        "handcrafted",
+        task=PettingZooTask.ORBITAL.get_from_yaml(),
+        group_map=group_map,
     )
     observations = [
         torch.zeros(20),
@@ -244,7 +247,7 @@ def test_handcrafted_orbital_baselines_are_role_only_single_action_policies(mode
 
     assert model.roles
     assert model.role_assignments == {
-        agent_name: next(iter(model.roles)) for agent_name in group_map["sat"]
+        agent_name: "handcrafted_full" for agent_name in group_map["sat"]
     }
     assert not model.goals
     assert not model.goal_assignments
@@ -262,38 +265,27 @@ def test_handcrafted_orbital_baselines_are_role_only_single_action_policies(mode
             )
 
 
-def test_handcrafted_orbital_policy_priorities():
+def test_partial_role_constraint_hardness_can_defer_to_neural_policy(monkeypatch):
     group_map = {"sat": ["sat_0"]}
     task = PettingZooTask.ORBITAL.get_from_yaml()
-    mission_observation = torch.zeros(20)
-    mission_observation[6] = 1.0  # ground contact
-    mission_observation[9] = 0.7  # buffered data
-    mission_observation[10] = 0.7  # buffer remaining
-    mission_observation[11] = 0.2  # local known tasks
-    mission_observation[12] = 0.1  # local known task priority
+    model = make_organizational_model("lb_action_only", task, group_map)
+    observation = torch.zeros(20)
+    observation[10] = 0.5
+    observation[11] = 0.1
 
-    rule = make_organizational_model("orbital_rb_rule", task, group_map)
-    relay_heavy = make_organizational_model("orbital_rb_relay_heavy", task, group_map)
+    monkeypatch.setattr("benchmarl.mma.orbital.random.random", lambda: 0.0)
+    assert tuple(model.role_for("sat_0").allowed_actions(observation, "sat_0")) == (0,)
+
+    monkeypatch.setattr("benchmarl.mma.orbital.random.random", lambda: 1.0)
     assert tuple(
-        rule.role_for("sat_0").allowed_actions(mission_observation, "sat_0")
-    ) == (0,)
-    assert tuple(
-        relay_heavy.role_for("sat_0").allowed_actions(mission_observation, "sat_0")
-    ) == (1,)
-
-    recharge_observation = torch.zeros(20)
-    recharge_observation[0] = 0.1  # energy
-    recharge_observation[5] = 1.0  # sunlight
-    dcop_lite = make_organizational_model("orbital_pb_dcop_lite", task, group_map)
-    assert tuple(
-        dcop_lite.role_for("sat_0").allowed_actions(recharge_observation, "sat_0")
-    ) == (5,)
+        model.role_for("sat_0").allowed_actions(observation, "sat_0")
+    ) == tuple(range(8))
 
 
-def test_moise_marl_manual_policy_priorities():
+def test_handcrafted_full_policy_priorities():
     group_map = {"sat": ["sat_0"]}
     task = PettingZooTask.ORBITAL.get_from_yaml()
-    model = make_organizational_model("moise-marl", task, group_map)
+    model = make_organizational_model("handcrafted", task, group_map)
     role = model.role_for("sat_0")
 
     compromised = torch.zeros(20)

@@ -15,7 +15,6 @@ from typing import Any, Iterable
 
 import yaml
 
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
 DEFAULT_SWEEP_OUTPUTS = SCRIPT_DIR / "outputs" / "2026-05-22"
@@ -93,7 +92,9 @@ def load_run_score(config_path: Path) -> RunScore | None:
 
     absolute_values = run_data.get("absolute_metrics", {}).get("return", [])
     absolute_return = statistics.mean(absolute_values) if absolute_values else None
-    return RunScore(run_dir, config_path, json_path, config, step_means, absolute_return)
+    return RunScore(
+        run_dir, config_path, json_path, config, step_means, absolute_return
+    )
 
 
 def scan_runs(outputs: Path) -> list[RunScore]:
@@ -134,10 +135,14 @@ def command_shortlist(args: argparse.Namespace) -> int:
         f"{SWEEP_FILTER}: {len(scores)} found under {args.outputs}"
     )
     print(f"Ranking metric: mean of final {args.tail_evals} evaluation means\n")
-    print("| Rank | Run | Evals | Last frames | Tail mean | Last eval | Absolute | Overrides |")
+    print(
+        "| Rank | Run | Evals | Last frames | Tail mean | Last eval | Absolute | Overrides |"
+    )
     print("| ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |")
     for rank, score in enumerate(scores[: args.top_k], 1):
-        absolute = "n/a" if score.absolute_return is None else f"{score.absolute_return:.1f}"
+        absolute = (
+            "n/a" if score.absolute_return is None else f"{score.absolute_return:.1f}"
+        )
         overrides = "<br>".join(config_override_values(score.config))
         print(
             f"| {rank} | `{score.run_dir.name}` | {len(score.step_means)} | "
@@ -147,7 +152,9 @@ def command_shortlist(args: argparse.Namespace) -> int:
     return 0
 
 
-def candidate_sections(path: Path, include_fallbacks: bool) -> dict[str, dict[str, Any]]:
+def candidate_sections(
+    path: Path, include_fallbacks: bool
+) -> dict[str, dict[str, Any]]:
     data = load_yaml(path)
     candidates = dict(data.get("finalists", {}))
     if include_fallbacks:
@@ -184,7 +191,11 @@ def validation_specs(
 
 
 def validation_command(
-    python_bin: str, candidate_id: str, candidate: dict[str, Any], scenario: str, seed: int
+    python_bin: str,
+    candidate_id: str,
+    candidate: dict[str, Any],
+    scenario: str,
+    seed: int,
 ) -> list[str]:
     run_name = f"orbital-hpo-{candidate_id}-{scenario}-seed{seed}"
     tags = (
@@ -195,7 +206,7 @@ def validation_command(
         python_bin,
         "fine_tuned/pettingzoo_orbital/pettingzoo_orbital_run.py",
         f"seed={seed}",
-        "++experiment.organizational_model=orbital_none",
+        "++experiment.organizational_model=lb_unconstrained",
         "experiment.max_n_frames=3000000",
         "experiment.evaluation_episodes=32",
         *candidate_overrides(candidate),
@@ -218,7 +229,9 @@ def command_validation_commands(args: argparse.Namespace) -> int:
     specs = list(validation_specs(candidates, chosen_scenarios(args.mode)))
     print(f"# {len(specs)} ORBITAL validation commands")
     for candidate_id, candidate, scenario, seed in specs:
-        command = validation_command(args.python, candidate_id, candidate, scenario, seed)
+        command = validation_command(
+            args.python, candidate_id, candidate, scenario, seed
+        )
         print(shlex.join(command))
         if args.run:
             subprocess.run(command, cwd=REPO_ROOT, check=True)
@@ -255,7 +268,10 @@ def command_validation_summary(args: argparse.Namespace) -> int:
         )
 
     if not records:
-        print(f"No tagged ORBITAL validation runs found under {args.outputs}", file=sys.stderr)
+        print(
+            f"No tagged ORBITAL validation runs found under {args.outputs}",
+            file=sys.stderr,
+        )
         return 1
 
     print(f"Validation tail metric: mean of final {args.tail_evals} evaluation means\n")
@@ -267,10 +283,17 @@ def command_validation_summary(args: argparse.Namespace) -> int:
             mean = statistics.mean(values)
             std = statistics.pstdev(values)
             means.setdefault(scenario, {})[candidate] = mean
-            print(f"| `{scenario}` | `{candidate}` | {len(values)} | {mean:.1f} | {std:.1f} |")
+            print(
+                f"| `{scenario}` | `{candidate}` | {len(values)} | {mean:.1f} | {std:.1f} |"
+            )
 
     weighted_ranks: dict[str, float] = {}
-    weights = {"default": 2, "network_stress": 1, "cyber_stress": 1, "resource_stress": 1}
+    weights = {
+        "default": 2,
+        "network_stress": 1,
+        "cyber_stress": 1,
+        "resource_stress": 1,
+    }
     for scenario, scenario_means in means.items():
         for candidate, scenario_rank in rank(scenario_means).items():
             weighted_ranks[candidate] = weighted_ranks.get(candidate, 0.0) + (
@@ -286,7 +309,9 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
     subparsers = root.add_subparsers(dest="command", required=True)
 
-    shortlist = subparsers.add_parser("shortlist", help="Rank completed sweep JSON files.")
+    shortlist = subparsers.add_parser(
+        "shortlist", help="Rank completed sweep JSON files."
+    )
     shortlist.add_argument("--outputs", type=Path, default=DEFAULT_SWEEP_OUTPUTS)
     shortlist.add_argument("--tail-evals", type=int, default=5)
     shortlist.add_argument("--top-k", type=int, default=18)

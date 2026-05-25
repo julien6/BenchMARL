@@ -156,13 +156,12 @@ The committed sweep uses:
 - Search over learning rate, entropy, PPO clip, discounting, GAE lambda, and
   on-policy optimization pressure.
 
-The sweep sets `experiment.organizational_model=orbital_none` explicitly. Keep
-the model id fixed within a HPO sweep. For the fixed-config article baseline
+The sweep sets `experiment.organizational_model=lb_unconstrained` explicitly. Keep
+the model id fixed within a HPO sweep. For the fixed-config ORBITAL baseline
 comparison after choosing a final ORBITAL configuration, use the separate
 `orbitalsweepconfig.yaml` grid. It changes only the organizational model among
-`orbital_none`, `orbital_lb_reward_only`, `orbital_lb_action_only`, and
-`orbital_mma_full`, plus the role-only handcrafted baselines `orbital_rb_rule`,
-`orbital_rb_relay_heavy`, and `orbital_pb_dcop_lite`.
+`handcrafted`, `lb_unconstrained`, `lb_moise_marl`, `lb_action_only`,
+`lb_reward_only`, `rb_deliverer`, `rb_dcop_like`, and `rb_acquirer`.
 
 Shortlist the two strongest non-collapsing configurations by the trailing
 evaluation behavior, not by a single reward spike.
@@ -211,7 +210,7 @@ python examples/sweep/wandb/orbital_hpo_postprocess.py \
   validation-commands --mode stress --run
 ```
 
-Each generated command pins the `orbital_none` organizational model,
+Each generated command pins the `lb_unconstrained` organizational model,
 uses 3M frames and 32 evaluation episodes, and adds W&B tags for candidate,
 scenario, and seed. Stress validation keeps the same final hyperparameters and
 changes only one ORBITAL task knob per scenario:

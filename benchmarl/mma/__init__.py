@@ -16,26 +16,31 @@ from .core import (
     register_organizational_model,
 )
 from .orbital import (
-    moise_marl,
-    orbital_all,
-    orbital_lb_action_only,
-    orbital_lb_reward_only,
-    orbital_mma_full,
-    orbital_none,
-    orbital_partial,
-    orbital_pb_dcop_lite,
-    orbital_rb_relay_heavy,
-    orbital_rb_rule,
+    handcrafted,
+    lb_action_only,
+    lb_moise_marl,
+    lb_reward_only,
+    lb_unconstrained,
+    rb_acquirer,
+    rb_dcop_like,
+    rb_deliverer,
 )
 from .transforms import MMAGoalRewardTransform, MMARoleMaskTransform
 
-register_organizational_model("orbital_none", orbital_none)
-register_organizational_model("orbital_partial", orbital_partial)
-register_organizational_model("orbital_all", orbital_all)
-register_organizational_model("orbital_lb_reward_only", orbital_lb_reward_only)
-register_organizational_model("orbital_lb_action_only", orbital_lb_action_only)
-register_organizational_model("orbital_mma_full", orbital_mma_full)
-register_organizational_model("orbital_rb_rule", orbital_rb_rule)
-register_organizational_model("orbital_rb_relay_heavy", orbital_rb_relay_heavy)
-register_organizational_model("orbital_pb_dcop_lite", orbital_pb_dcop_lite)
-register_organizational_model("moise-marl", moise_marl)
+register_organizational_model("handcrafted", handcrafted)
+register_organizational_model("lb_unconstrained", lb_unconstrained)
+register_organizational_model("lb_moise_marl", lb_moise_marl)
+register_organizational_model("lb_action_only", lb_action_only)
+register_organizational_model("lb_reward_only", lb_reward_only)
+register_organizational_model("rb_deliverer", rb_deliverer)
+register_organizational_model("rb_dcop_like", rb_dcop_like)
+register_organizational_model("rb_acquirer", rb_acquirer)
+
+# Backward-compatible aliases for existing configs and runs.
+register_organizational_model("orbital_none", lb_unconstrained)
+register_organizational_model("orbital_lb_reward_only", lb_reward_only)
+register_organizational_model("orbital_lb_action_only", lb_action_only)
+register_organizational_model("orbital_mma_full", lb_moise_marl)
+register_organizational_model("orbital_all", lb_moise_marl)
+register_organizational_model("orbital_partial", lb_action_only)
+register_organizational_model("moise-marl", handcrafted)

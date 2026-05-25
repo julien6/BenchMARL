@@ -40,14 +40,14 @@ parameters:
 
   experiment.organizational_model:
     values:
-      - "orbital_none"
-      - "orbital_lb_reward_only"
-      - "orbital_lb_action_only"
-      - "orbital_mma_full"
-      - "orbital_rb_rule"
-      - "orbital_rb_relay_heavy"
-      - "orbital_pb_dcop_lite"
-      - "moise-marl"
+      - "handcrafted"
+      - "lb_unconstrained"
+      - "lb_moise_marl"
+      - "lb_action_only"
+      - "lb_reward_only"
+      - "rb_deliverer"
+      - "rb_dcop_like"
+      - "rb_acquirer"
 
   experiment.loggers:
     value: "[wandb]"

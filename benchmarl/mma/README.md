@@ -25,34 +25,27 @@ Hydra experiments select that id through the experiment config:
 python benchmarl/run.py \
   algorithm=mappo \
   task=pettingzoo/orbital \
-  experiment.organizational_model=orbital_partial
+  experiment.organizational_model=lb_moise_marl
 ```
 
-ORBITAL ships prototype assignment ids `orbital_none`, `orbital_partial`, and
-`orbital_all`. `orbital_none` is classic MARL without organizational guidance.
-
-Article-oriented MAPPO baselines use these ids:
+ORBITAL baselines use these ids:
 
 | Id | Roles | Goals | Meaning |
 | --- | --- | --- | --- |
-| `orbital_lb_reward_only` | no | yes | free actions with mission reward shaping |
-| `orbital_lb_action_only` | yes | no | role action masks without mission shaping |
-| `orbital_mma_full` | yes | yes | role action masks and mission goal shaping |
+| `handcrafted` | `handcrafted_full` | no | fully scripted handcrafted policy |
+| `lb_unconstrained` | no | no | classic MARL without organizational guidance |
+| `lb_moise_marl` | partial `acquirer`, `deliverer`, `stabilizer` | yes | partial role shielding plus reward shaping |
+| `lb_action_only` | partial `acquirer`, `deliverer`, `stabilizer` | no | partial role shielding only |
+| `lb_reward_only` | no | yes | reward shaping only |
+| `rb_deliverer` | full `deliverer`, partial `acquirer` and `stabilizer` | no | delivery-biased role shielding |
+| `rb_dcop_like` | full `acquirer` and `deliverer`, partial `stabilizer` | no | stronger planning-like acquisition/delivery shielding |
+| `rb_acquirer` | full `acquirer`, partial `deliverer` and `stabilizer` | no | acquisition-biased role shielding |
 
-Handcrafted ORBITAL baselines also use role ids so they can reuse the action
-mask path, but each role returns one handcrafted action at a time rather than a
-learnable action subset:
+Partial roles use `constraint hardness = 0.3`: when sampled, the role imposes
+its handcrafted action; otherwise the neural policy can choose freely. Full
+roles use `constraint hardness = 1.0` and always impose the role action.
 
-| Id | Heuristic |
-| --- | --- |
-| `orbital_rb_rule` | priority-first local observation, then relay, then energy fallback |
-| `orbital_rb_relay_heavy` | ground or satellite relay before observation, with weak energy fallback |
-| `orbital_pb_dcop_lite` | phase-scheduled observer/relay choices constrained by local energy, connectivity, buffer, and safety state |
-| `moise-marl` | single-role manual policy for all agents: scan, recharge, ground relay, satellite relay, observe, then idle |
-
-The article-oriented ids use the ORBITAL roles `orbital_observer_role`,
-`orbital_relay_role`, and `orbital_safety_guard_role`, with the mission goals
-`orbital_task_acquisition_goal`, `orbital_data_delivery_goal`, and
-`orbital_fleet_resilience_goal`. Keep one id fixed when a W&B sweep tunes
-hyperparameters for one baseline. Use a separate sweep with a different
-`experiment.organizational_model` value when comparing organization choices.
+The goal catalog mirrors the three role logics: `acquirer_goal`,
+`deliverer_goal`, and `stabilizer_goal`. Each goal gives a positive bonus when
+the action follows the corresponding handcrafted role logic, and a small malus
+when a relevant handcrafted action was available but not selected.
