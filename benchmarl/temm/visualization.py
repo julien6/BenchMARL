@@ -525,7 +525,7 @@ def _explanation_html(name: str, spec: Dict[str, str]) -> str:
         "<summary style='cursor: pointer; font-weight: 600;'>Explanation</summary>"
         "<div style='margin-top: 10px;'>"
         f"<p>{escape(spec['title'])}</p>"
-        f"<p><strong>Interpretation block (Comment lire)</strong><br>{escape(spec['interpretation'])}</p>"
+        f"<p><strong>Interpretation</strong><br>{escape(spec['interpretation'])}</p>"
         f"<p><strong>Expected pattern</strong><br>{escape(spec['expected'])}</p>"
         f"<p><strong>Failure modes</strong><br>{escape(spec['failure'])}</p>"
         f"<p style='color:#667085; font-size: 12px;'>Panel: {escape(name)}</p>"
